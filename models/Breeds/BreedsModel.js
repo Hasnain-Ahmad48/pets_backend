@@ -277,6 +277,214 @@ const searchBreeds = (query, limit = 20) => {
 //   });
 // };
 
+// var updateBreedWithImage = function (
+//   title,
+//   description,
+//   categoryid,
+//   imagePath,
+//   lifespan,
+//   weight,
+//   height,
+//   shortDescription,
+//   id,
+//   tags = [],
+//   qa = [],
+// ) {
+//   var conn = db;
+//   var updateBreedResult;
+
+//   return new Promise(function (resolve, reject) {
+//     conn.beginTransaction(function (err) {
+//       if (err) {
+//         console.error("Error beginning transaction:", err);
+//         reject({success: false, message: "Internal server error"});
+//       } else {
+//         var checkCategoryIdQuery = "SELECT id FROM breedcategory WHERE id = ?";
+//         conn.query(checkCategoryIdQuery, [categoryid], function (err, result) {
+//           if (err) {
+//             console.error("Error checking categoryid:", err);
+//             conn.rollback(() =>
+//               reject({success: false, message: "Internal server error"}),
+//             );
+//           } else {
+//             if (result.length === 0) {
+//               return reject(
+//                 new Error("Category with id " + categoryid + " does not exist"),
+//               );
+//             }
+
+//             var updateBreedQuery =
+//               "UPDATE breeds SET title=?, description=?, categoryid=?, lifespan=?, weight=?, height=?, shortDescription=? WHERE id=?";
+
+//             conn.query(
+//               updateBreedQuery,
+//               [
+//                 title,
+//                 description,
+//                 categoryid,
+//                 lifespan,
+//                 weight,
+//                 height,
+//                 shortDescription,
+//                 id,
+//               ],
+//               async function (err, result) {
+//                 if (err) {
+//                   console.error("Error updating breed:", err);
+//                   conn.rollback(() =>
+//                     reject({success: false, message: "Internal server error"}),
+//                   );
+//                 } else {
+//                   updateBreedResult = result;
+
+//                   // ==============================================================
+//                   // ✅ TAG UPDATE
+//                   // ==============================================================
+
+//                   try {
+//                     // Convert all tags to numbers
+//                     tags = tags.map(t => Number(t));
+
+//                     // Fetch current tags
+//                     const currentTags = await new Promise((res, rej) => {
+//                       conn.query(
+//                         "SELECT tag_id FROM breed_tags WHERE breed_id=?",
+//                         [id],
+//                         (err, rows) => {
+//                           if (err) rej(err);
+//                           else res(rows.map(r => Number(r.tag_id)));
+//                         },
+//                       );
+//                     });
+
+//                     try {
+//                       await new Promise((res, rej) =>
+//                         conn.query(
+//                           "DELETE FROM `breedsq&a` WHERE breed_id=?",
+//                           [id],
+//                           err => (err ? rej(err) : res()),
+//                         ),
+//                       );
+
+//                       if (qa && qa.length > 0) {
+//                         const qaValues = qa.map(q => [
+//                           q.question,
+//                           q.answer,
+//                           q.extra || null,
+//                           id,
+//                         ]);
+
+//                         await new Promise((res, rej) =>
+//                           conn.query(
+//                             "INSERT INTO `breedsq&a` (question, answer, extra, breed_id) VALUES ?",
+//                             [qaValues],
+//                             err => (err ? rej(err) : res()),
+//                           ),
+//                         );
+//                       }
+//                     } catch (err) {
+//                       console.error("Error updating Q/A:", err);
+//                       return conn.rollback(() =>
+//                         reject({
+//                           success: false,
+//                           message: "Internal server error",
+//                         }),
+//                       );
+//                     }
+
+//                     // Determine what to add/remove
+//                     const tagsToAdd = tags.filter(
+//                       tag => !currentTags.includes(tag),
+//                     );
+//                     const tagsToRemove = currentTags.filter(
+//                       tag => !tags.includes(tag),
+//                     );
+
+//                     // Insert new tags
+//                     if (tagsToAdd.length > 0) {
+//                       const insertValues = tagsToAdd.map(tag => [id, tag]);
+//                       await new Promise((res, rej) =>
+//                         conn.query(
+//                           "INSERT INTO breed_tags (breed_id, tag_id) VALUES ?",
+//                           [insertValues],
+//                           err => (err ? rej(err) : res()),
+//                         ),
+//                       );
+//                     }
+
+//                     // Remove deleted tags
+//                     if (tagsToRemove.length > 0) {
+//                       await new Promise((res, rej) =>
+//                         conn.query(
+//                           "DELETE FROM breed_tags WHERE breed_id=? AND tag_id IN (?)",
+//                           [id, tagsToRemove],
+//                           err => (err ? rej(err) : res()),
+//                         ),
+//                       );
+//                     }
+//                   } catch (err) {
+//                     console.error("Error updating tags:", err);
+//                     return conn.rollback(() =>
+//                       reject({
+//                         success: false,
+//                         message: "Internal server error",
+//                       }),
+//                     );
+//                   }
+
+//                   // ==============================================================
+//                   // TAG UPDATE
+//                   // ==============================================================
+
+//                   // Insert images (your original logic)
+//                   if (imagePath && imagePath.length > 0) {
+//                     var insertImagesQuery =
+//                       "INSERT INTO breedsimages (image, breed_id) VALUES (?, ?)";
+//                     var values = imagePath.map(img => ({image: img, id: id}));
+
+//                     for (let value of values) {
+//                       conn.query(
+//                         insertImagesQuery,
+//                         [value.image, value.id],
+//                         function (err) {
+//                           if (err) {
+//                             console.error("Error inserting images:", err);
+//                             return conn.rollback(() =>
+//                               reject({
+//                                 success: false,
+//                                 message: "Internal server error",
+//                               }),
+//                             );
+//                           }
+//                         },
+//                       );
+//                     }
+//                   }
+
+//                   // Commit the whole transaction
+//                   conn.commit(function (err) {
+//                     if (err) {
+//                       console.error("Error committing transaction:", err);
+//                       conn.rollback(() =>
+//                         reject({
+//                           success: false,
+//                           message: "Internal server error",
+//                         }),
+//                       );
+//                     } else {
+//                       resolve(updateBreedResult);
+//                     }
+//                   });
+//                 }
+//               },
+//             );
+//           }
+//         });
+//       }
+//     });
+//   });
+// };
+
 var updateBreedWithImage = function (
   title,
   description,
@@ -291,194 +499,176 @@ var updateBreedWithImage = function (
   qa = [],
 ) {
   var conn = db;
-  var updateBreedResult;
 
   return new Promise(function (resolve, reject) {
-    conn.beginTransaction(function (err) {
+    conn.beginTransaction(async function (err) {
       if (err) {
         console.error("Error beginning transaction:", err);
-        reject({success: false, message: "Internal server error"});
-      } else {
-        var checkCategoryIdQuery = "SELECT id FROM breedcategory WHERE id = ?";
-        conn.query(checkCategoryIdQuery, [categoryid], function (err, result) {
-          if (err) {
-            console.error("Error checking categoryid:", err);
-            conn.rollback(() =>
-              reject({success: false, message: "Internal server error"}),
+        return reject({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+
+      try {
+        // =========================================================
+        // ✅ CHECK CATEGORY EXISTS
+        // =========================================================
+        const categoryCheck = await new Promise((res, rej) =>
+          conn.query(
+            "SELECT id FROM breedcategory WHERE id = ?",
+            [categoryid],
+            (err, rows) => (err ? rej(err) : res(rows))
+          )
+        );
+
+        if (categoryCheck.length === 0) {
+          await new Promise(res => conn.rollback(() => res()));
+          return reject(
+            new Error("Category with id " + categoryid + " does not exist")
+          );
+        }
+
+        // =========================================================
+        // ✅ UPDATE BREED MAIN DATA
+        // =========================================================
+        const updateBreedResult = await new Promise((res, rej) =>
+          conn.query(
+            `UPDATE breeds 
+             SET title=?, description=?, categoryid=?, lifespan=?, weight=?, height=?, shortDescription=? 
+             WHERE id=?`,
+            [
+              title,
+              description,
+              categoryid,
+              lifespan,
+              weight,
+              height,
+              shortDescription,
+              id,
+            ],
+            (err, result) => (err ? rej(err) : res(result))
+          )
+        );
+
+        // =========================================================
+        // ✅ TEXT BASED TAG UPDATE (FIXED)
+        // =========================================================
+        try {
+          // remove old tag mappings
+          await new Promise((res, rej) =>
+            conn.query(
+              "DELETE FROM breed_tags WHERE breed_id=?",
+              [id],
+              err => (err ? rej(err) : res())
+            )
+          );
+
+          // reinsert fresh tags
+          for (let tag of tags) {
+            tag = tag.trim();
+
+            let tagRow = await new Promise((res, rej) =>
+              conn.query(
+                "SELECT id FROM tags WHERE name=?",
+                [tag],
+                (err, rows) => (err ? rej(err) : res(rows))
+              )
             );
-          } else {
-            if (result.length === 0) {
-              return reject(
-                new Error("Category with id " + categoryid + " does not exist"),
+
+            let tagId;
+
+            if (tagRow.length === 0) {
+              const insertTag = await new Promise((res, rej) =>
+                conn.query(
+                  "INSERT INTO tags (name) VALUES (?)",
+                  [tag],
+                  (err, result) => (err ? rej(err) : res(result))
+                )
               );
+
+              tagId = insertTag.insertId;
+            } else {
+              tagId = tagRow[0].id;
             }
 
-            var updateBreedQuery =
-              "UPDATE breeds SET title=?, description=?, categoryid=?, lifespan=?, weight=?, height=?, shortDescription=? WHERE id=?";
-
-            conn.query(
-              updateBreedQuery,
-              [
-                title,
-                description,
-                categoryid,
-                lifespan,
-                weight,
-                height,
-                shortDescription,
-                id,
-              ],
-              async function (err, result) {
-                if (err) {
-                  console.error("Error updating breed:", err);
-                  conn.rollback(() =>
-                    reject({success: false, message: "Internal server error"}),
-                  );
-                } else {
-                  updateBreedResult = result;
-
-                  // ==============================================================
-                  // ✅ TAG UPDATE
-                  // ==============================================================
-
-                  try {
-                    // Convert all tags to numbers
-                    tags = tags.map(t => Number(t));
-
-                    // Fetch current tags
-                    const currentTags = await new Promise((res, rej) => {
-                      conn.query(
-                        "SELECT tag_id FROM breed_tags WHERE breed_id=?",
-                        [id],
-                        (err, rows) => {
-                          if (err) rej(err);
-                          else res(rows.map(r => Number(r.tag_id)));
-                        },
-                      );
-                    });
-
-                    try {
-                      await new Promise((res, rej) =>
-                        conn.query(
-                          "DELETE FROM `breedsq&a` WHERE breed_id=?",
-                          [id],
-                          err => (err ? rej(err) : res()),
-                        ),
-                      );
-
-                      if (qa && qa.length > 0) {
-                        const qaValues = qa.map(q => [
-                          q.question,
-                          q.answer,
-                          q.extra || null,
-                          id,
-                        ]);
-
-                        await new Promise((res, rej) =>
-                          conn.query(
-                            "INSERT INTO `breedsq&a` (question, answer, extra, breed_id) VALUES ?",
-                            [qaValues],
-                            err => (err ? rej(err) : res()),
-                          ),
-                        );
-                      }
-                    } catch (err) {
-                      console.error("Error updating Q/A:", err);
-                      return conn.rollback(() =>
-                        reject({
-                          success: false,
-                          message: "Internal server error",
-                        }),
-                      );
-                    }
-
-                    // Determine what to add/remove
-                    const tagsToAdd = tags.filter(
-                      tag => !currentTags.includes(tag),
-                    );
-                    const tagsToRemove = currentTags.filter(
-                      tag => !tags.includes(tag),
-                    );
-
-                    // Insert new tags
-                    if (tagsToAdd.length > 0) {
-                      const insertValues = tagsToAdd.map(tag => [id, tag]);
-                      await new Promise((res, rej) =>
-                        conn.query(
-                          "INSERT INTO breed_tags (breed_id, tag_id) VALUES ?",
-                          [insertValues],
-                          err => (err ? rej(err) : res()),
-                        ),
-                      );
-                    }
-
-                    // Remove deleted tags
-                    if (tagsToRemove.length > 0) {
-                      await new Promise((res, rej) =>
-                        conn.query(
-                          "DELETE FROM breed_tags WHERE breed_id=? AND tag_id IN (?)",
-                          [id, tagsToRemove],
-                          err => (err ? rej(err) : res()),
-                        ),
-                      );
-                    }
-                  } catch (err) {
-                    console.error("Error updating tags:", err);
-                    return conn.rollback(() =>
-                      reject({
-                        success: false,
-                        message: "Internal server error",
-                      }),
-                    );
-                  }
-
-                  // ==============================================================
-                  // TAG UPDATE
-                  // ==============================================================
-
-                  // Insert images (your original logic)
-                  if (imagePath && imagePath.length > 0) {
-                    var insertImagesQuery =
-                      "INSERT INTO breedsimages (image, breed_id) VALUES (?, ?)";
-                    var values = imagePath.map(img => ({image: img, id: id}));
-
-                    for (let value of values) {
-                      conn.query(
-                        insertImagesQuery,
-                        [value.image, value.id],
-                        function (err) {
-                          if (err) {
-                            console.error("Error inserting images:", err);
-                            return conn.rollback(() =>
-                              reject({
-                                success: false,
-                                message: "Internal server error",
-                              }),
-                            );
-                          }
-                        },
-                      );
-                    }
-                  }
-
-                  // Commit the whole transaction
-                  conn.commit(function (err) {
-                    if (err) {
-                      console.error("Error committing transaction:", err);
-                      conn.rollback(() =>
-                        reject({
-                          success: false,
-                          message: "Internal server error",
-                        }),
-                      );
-                    } else {
-                      resolve(updateBreedResult);
-                    }
-                  });
-                }
-              },
+            await new Promise((res, rej) =>
+              conn.query(
+                "INSERT INTO breed_tags (breed_id, tag_id) VALUES (?, ?)",
+                [id, tagId],
+                err => (err ? rej(err) : res())
+              )
             );
           }
+        } catch (err) {
+          console.error("Error updating tags:", err);
+          return conn.rollback(() =>
+            reject({
+              success: false,
+              message: "Internal server error",
+            })
+          );
+        }
+
+        // =========================================================
+        // ✅ UPDATE Q/A
+        // =========================================================
+        await new Promise((res, rej) =>
+          conn.query(
+            "DELETE FROM `breedsq&a` WHERE breed_id=?",
+            [id],
+            err => (err ? rej(err) : res())
+          )
+        );
+
+        if (qa && qa.length > 0) {
+          const qaValues = qa.map(q => [
+            q.question,
+            q.answer,
+            q.extra || null,
+            id,
+          ]);
+
+          await new Promise((res, rej) =>
+            conn.query(
+              "INSERT INTO `breedsq&a` (question, answer, extra, breed_id) VALUES ?",
+              [qaValues],
+              err => (err ? rej(err) : res())
+            )
+          );
+        }
+
+        // =========================================================
+        // ✅ INSERT NEW IMAGES (OPTIONAL)
+        // =========================================================
+        if (imagePath && imagePath.length > 0) {
+          const imageValues = imagePath.map(img => [img, id]);
+
+          await new Promise((res, rej) =>
+            conn.query(
+              "INSERT INTO breedsimages (image, breed_id) VALUES ?",
+              [imageValues],
+              err => (err ? rej(err) : res())
+            )
+          );
+        }
+
+        // =========================================================
+        // ✅ COMMIT TRANSACTION
+        // =========================================================
+        await new Promise((res, rej) =>
+          conn.commit(err => (err ? rej(err) : res()))
+        );
+
+        resolve(updateBreedResult);
+      } catch (error) {
+        console.error("Update breed error:", error);
+
+        conn.rollback(() => {
+          reject({
+            success: false,
+            message: error.message || "Internal server error",
+          });
         });
       }
     });
