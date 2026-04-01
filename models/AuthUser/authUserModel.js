@@ -7,12 +7,14 @@ var signupUser = function (
   email,
   hashedPassword,
   image,
+  firstName=null,
+  lastName=null,
   status="1"
  
 ) {
   var checkQuery = "SELECT COUNT(*) AS count FROM user_signup WHERE email = ?";
   var insertQuery =
-    `INSERT INTO user_signup (email, password,  user_profile_photo, status) VALUES (?, ?, ?, ?)`;
+    `INSERT INTO user_signup (email, password,  user_profile_photo, status,firstName, lastName) VALUES (?, ?, ?, ?,?,?)`;
   var selectQuery = "SELECT * FROM user_signup WHERE id = LAST_INSERT_ID()";
 
   return new Promise((resolve, reject) => {
@@ -27,7 +29,7 @@ var signupUser = function (
           db.query(
             insertQuery,
             [
-              email, hashedPassword,  image, status, 
+              email, hashedPassword,  image,firstName,lastName, status
             ],
             function (insertErr) {
               if (insertErr) {

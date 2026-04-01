@@ -110,7 +110,9 @@ const secretKey = 'ZAQ123!12@assddfhex';
      
       email,
       hashedPassword,
-      image
+      image,
+       firstName,
+      lastName,
     
     )
     .then((user) => {
