@@ -893,6 +893,7 @@ const updateProductById = (
   images,
   colors,
   featuredImage,
+  brand_id
 ) => {
   return new Promise((resolve, reject) => {
     const updateProductQuery = `
@@ -908,7 +909,7 @@ const updateProductById = (
         search_tag = ?,
         highlight_information = ?,
         is_featured = ?,
-        featured_image = ?,
+        featured_image = COALESCE(?, featured_image),
         is_available = ?,
         code = ?,
         status = ?,
@@ -916,22 +917,23 @@ const updateProductById = (
         shipping_cost = ?,
         minimum_order = ?,
         product_unit = ?,
-        product_measurement = ?
+        product_measurement = ?,
+        brand_id = ?
       WHERE id = ?`;
 
-    const deleteColorsQuery = `
+    const deleteImagesQuery = `
       DELETE FROM mk_product_images
       WHERE product_id = ?`;
 
-    const insertColorsQuery = `
+    const insertImagesQuery = `
       INSERT INTO mk_product_images (product_id, image)
       VALUES ?`;
 
-    const deleteImagesQuery = `
+    const deleteColorsQuery = `
       DELETE FROM mk_products_colors
       WHERE product_id = ?`;
 
-    const insertImagesQuery = `
+    const insertColorsQuery = `
       INSERT INTO mk_products_colors (product_id, color_value)
       VALUES ?`;
 
@@ -960,81 +962,59 @@ const updateProductById = (
           minimum_order,
           product_unit,
           product_measurement,
-          productId,
+          brand_id,
+          productId
         ],
         (err, result) => {
           if (err) {
-            return db.rollback(() => {
-              reject(err);
-            });
+            return db.rollback(() => reject(err));
           }
 
-          const updateColors = () => {
-            if (colors.length > 0) {
-              db.query(deleteColorsQuery, [productId], (err, result) => {
-                if (err) {
-                  return db.rollback(() => {
-                    reject(err);
-                  });
-                }
+          const updateColors = callback => {
+            if (!colors || colors.length === 0) return callback();
 
-                const colorValues = colors.map(color => [productId, color]);
-                db.query(insertColorsQuery, [colorValues], (err, result) => {
-                  if (err) {
-                    return db.rollback(() => {
-                      reject(err);
-                    });
-                  }
+            db.query(deleteColorsQuery, [productId], err => {
+              if (err) return db.rollback(() => reject(err));
 
-                  updateImages();
-                });
+              const colorValues = colors.map(
+                color => [productId, color]
+              );
+
+              db.query(insertColorsQuery, [colorValues], err => {
+                if (err) return db.rollback(() => reject(err));
+                callback();
               });
-            } else {
-              updateImages();
-            }
+            });
           };
 
-          const updateImages = () => {
-            if (images.length > 0) {
-              db.query(deleteImagesQuery, [productId], (err, result) => {
-                if (err) {
-                  return db.rollback(() => {
-                    reject(err);
-                  });
-                }
+          const updateImages = callback => {
+            if (!images || images.length === 0) return callback();
 
-                const imageValues = images.map(image => [productId, image]);
-                db.query(insertImagesQuery, [imageValues], (err, result) => {
-                  if (err) {
-                    return db.rollback(() => {
-                      reject(err);
-                    });
-                  }
+            db.query(deleteImagesQuery, [productId], err => {
+              if (err) return db.rollback(() => reject(err));
 
-                  db.commit(err => {
-                    if (err) {
-                      return db.rollback(() => {
-                        reject(err);
-                      });
-                    }
-                    resolve(result);
-                  });
-                });
+              const imageValues = images.map(
+                image => [productId, image]
+              );
+
+              db.query(insertImagesQuery, [imageValues], err => {
+                if (err) return db.rollback(() => reject(err));
+                callback();
               });
-            } else {
+            });
+          };
+
+          updateColors(() => {
+            updateImages(() => {
               db.commit(err => {
                 if (err) {
-                  return db.rollback(() => {
-                    reject(err);
-                  });
+                  return db.rollback(() => reject(err));
                 }
                 resolve(result);
               });
-            }
-          };
-
-          updateColors();
-        },
+            });
+          });
+        }
       );
     });
   });
