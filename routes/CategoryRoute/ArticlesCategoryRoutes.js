@@ -19,13 +19,13 @@ var upload = multer({ storage: storage });
 
 router.post(
   "/addarticle",
-  middleware.hasPermission_v2("Articles", "Add"),
+  // middleware.hasPermission_v2("Articles", "Add"),
   upload.single("image"),
   ArticlesCategoryController.addArticle
 );
 router.get(
   "/getarticles/:page",
-  middleware.hasPermission_v2("Articles", "View"),
+  // middleware.hasPermission_v2("Articles", "View"),
   ArticlesCategoryController.getArticleCategory
 );
 

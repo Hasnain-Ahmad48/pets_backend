@@ -149,63 +149,72 @@ var addArticle = function (
 ) {
   return new Promise(function (resolve, reject) {
     db.beginTransaction(function (err) {
-      if (err) {
-        console.error(err);
-        reject(err);
+      if (err) return reject(err);
+
+      // ✅ FIX TAGS FIRST
+      if (typeof tags === "string") {
+        tags = tags.split(",").map((t) => Number(t.trim()));
       }
 
-      // Check if the slug already exists in the database
+      if (!Array.isArray(tags)) {
+        tags = [];
+      }
+
+      tags = tags.map((t) => Number(t)).filter(Boolean);
+
+      // Check if slug already exists
       var checkSlugQuery =
         "SELECT COUNT(*) AS count FROM articles WHERE slug = ?";
+
       db.query(checkSlugQuery, [slug], function (err, result) {
         if (err) {
-          console.error(err);
-          return db.rollback(function () {
-            reject(err);
-          });
+          return db.rollback(() => reject(err));
         }
 
         var count = result[0].count;
-        var finalSlug = slug;
-        if (count > 0) {
-          // If the slug already exists, append a unique identifier to the slug
-          finalSlug = slug + "-" + Date.now();
-        }
+        var finalSlug = count > 0 ? slug + "-" + Date.now() : slug;
 
-        var insertArticleQuery =
-          "INSERT INTO `articles`(`title`, `slug`, `description`, `image`, `categoryid`, `userid`) VALUES (?,?,?,?,?,?)";
+        var insertArticleQuery = `
+          INSERT INTO articles
+          (title, slug, description, image, categoryid, userid)
+          VALUES (?,?,?,?,?,?)
+        `;
+
         db.query(
           insertArticleQuery,
           [title, finalSlug, description, imageUrl, categoryid, userid],
           function (err, result) {
             if (err) {
-              console.error(err);
-              return db.rollback(function () {
-                reject(err);
-              });
+              return db.rollback(() => reject(err));
             }
 
             var articleId = result.insertId;
 
-            // Insert tags into the article_tags table
+            // ✅ If no tags, commit directly
+            if (tags.length === 0) {
+              return db.commit((err) => {
+                if (err) return db.rollback(() => reject(err));
+                resolve({ articleId });
+              });
+            }
+
+            // ✅ Insert tags
             var insertTagsQuery =
-              "INSERT INTO `article_tags`(`article_id`, `tag_id`) VALUES ?";
+              "INSERT INTO article_tags (article_id, tag_id) VALUES ?";
+
             var tagData = tags.map((tagId) => [articleId, tagId]);
-            db.query(insertTagsQuery, [tagData], function (err, result) {
+
+            db.query(insertTagsQuery, [tagData], function (err) {
               if (err) {
-                console.error(err);
-                return db.rollback(function () {
-                  reject(err);
-                });
+                return db.rollback(() => reject(err));
               }
 
               db.commit(function (err) {
                 if (err) {
-                  return db.rollback(function () {
-                    reject(err);
-                  });
+                  return db.rollback(() => reject(err));
                 }
-                resolve({ articleId: articleId });
+
+                resolve({ articleId });
               });
             });
           }
