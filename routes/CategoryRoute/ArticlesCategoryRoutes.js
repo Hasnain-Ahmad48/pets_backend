@@ -48,15 +48,15 @@ router.get(
 );
 router.delete(
   "/deletearticle/:id",
-  middleware.hasPermission_v2("Articles", "Delete"),
+  // middleware.hasPermission_v2("Articles", "Delete"),
   ArticlesCategoryController.deleteArticleController
 );
 router.get(
   "/getArticle/:id",
-  middleware.hasPermission_v2(
-    "Articles",
-    "Update"
-  ),
+  // middleware.hasPermission_v2(
+  //   "Articles",
+  //   "Update"
+  // ),
   ArticlesCategoryController.getArticleById
 );
 router.get(

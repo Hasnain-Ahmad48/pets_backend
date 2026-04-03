@@ -2,13 +2,45 @@ var db = require("../../config/DatabaseConnection.js");
 
 var getArticles = function (page, limit) {
   var offset = (page - 1) * limit;
-  var query = `SELECT a.id, a.title ,a.slug, a.description , a.image ,c.categoryName FROM articles a JOIN articlecategory c ON a.categoryid = c.categoryid LIMIT ${limit} OFFSET ${offset}`;
+
+  var query = `
+    SELECT
+      a.id,
+      a.title,
+      a.slug,
+      a.description,
+      a.image,
+      c.categoryName,
+      GROUP_CONCAT(t.name) AS tag_names
+    FROM articles a
+    JOIN articlecategory c 
+      ON a.categoryid = c.categoryid
+    LEFT JOIN article_tags at 
+      ON a.id = at.article_id
+    LEFT JOIN tags t 
+      ON at.tag_id = t.id
+    GROUP BY a.id
+    ORDER BY a.id DESC
+    LIMIT ? OFFSET ?
+  `;
+
   return new Promise(function (resolve, reject) {
-    db.query(query, function (err, result) {
+    db.query(query, [limit, offset], function (err, result) {
       if (err) {
         reject(err);
       } else {
-        resolve(result);
+        const formatted = result.map((article) => ({
+          ...article,
+          tags: {
+            id: article.id,
+            names: article.tag_names ? article.tag_names.split(",") : [],
+          },
+        }));
+
+        // remove raw SQL field
+        const cleaned = formatted.map(({ tag_names, ...rest }) => rest);
+
+        resolve(cleaned);
       }
     });
   });
@@ -408,49 +440,105 @@ var deleteArticle = async function (id) {
 };
 
 var get10Articles = function (callback) {
-  var query = `WITH RankedArticles AS (
+  var query = `
+    WITH RankedArticles AS (
+      SELECT
+          a.id,
+          a.title,
+          a.slug,
+          CONCAT(LEFT(a.description, 150), '...') AS description,
+          a.image,
+          c.categoryName,
+          GROUP_CONCAT(t.name) AS tags,
+          ROW_NUMBER() OVER (ORDER BY a.id DESC) AS RowNum
+      FROM articles a
+      JOIN articlecategory c 
+          ON a.categoryid = c.categoryid
+      LEFT JOIN article_tags at 
+          ON a.id = at.article_id
+      LEFT JOIN tags t 
+          ON at.tag_id = t.id
+      GROUP BY a.id
+    )
     SELECT
-        a.id,
-        a.title,
-        a.slug,
-        CONCAT(LEFT(a.description, 150), '...') AS description,
-        a.image,
-        c.categoryName,
-        ROW_NUMBER() OVER (ORDER BY a.id DESC) AS RowNum
-    FROM
-        articles a
-    JOIN articlecategory c ON a.categoryid = c.categoryid
-)
-SELECT
-    id,
-    title,
-    slug,
-    description,
-    image,
-    categoryName
-FROM
-    RankedArticles
-WHERE
-    RowNum <= 10;
-`;
+        id,
+        title,
+        slug,
+        description,
+        image,
+        categoryName,
+        tags
+    FROM RankedArticles
+    WHERE RowNum <= 10;
+  `;
+
   db.query(query, function (err, result) {
     if (err) return callback(err, null);
-    return callback(null, result);
+
+    // ✅ convert comma string into array
+    const formatted = result.map(article => ({
+      ...article,
+      tags: article.tags ? article.tags.split(",") : [],
+    }));
+
+    return callback(null, formatted);
   });
 };
 
 // Search api for articles search by title
 var searchArticle = (title) => {
-  var query =
-    "SELECT a.id, a.title,a.slug , a.description , a.image ,c.categoryName FROM articles a JOIN articlecategory c ON a.categoryid = c.categoryid WHERE a.title LIKE ?";
+  var query = `
+    SELECT 
+      a.id,
+      a.title,
+      a.slug,
+      a.description,
+      a.image,
+      c.categoryName,
+      t.id AS tag_id,
+      t.name AS tag_name
+    FROM articles a
+    JOIN articlecategory c 
+      ON a.categoryid = c.categoryid
+    LEFT JOIN article_tags at 
+      ON a.id = at.article_id
+    LEFT JOIN tags t 
+      ON at.tag_id = t.id
+    WHERE a.title LIKE ?
+    ORDER BY a.id DESC
+  `;
+
   var titleParam = "%" + title + "%";
 
   return new Promise(function (resolve, reject) {
-    db.query(query, titleParam, function (err, result) {
+    db.query(query, [titleParam], function (err, rows) {
       if (err) {
         reject(err);
       } else {
-        resolve(result);
+        const articlesMap = {};
+
+        rows.forEach((row) => {
+          if (!articlesMap[row.id]) {
+            articlesMap[row.id] = {
+              id: row.id,
+              title: row.title,
+              slug: row.slug,
+              description: row.description,
+              image: row.image,
+              categoryName: row.categoryName,
+              tags: [],
+            };
+          }
+
+          if (row.tag_id) {
+            articlesMap[row.id].tags.push({
+              id: row.tag_id,
+              name: row.tag_name,
+            });
+          }
+        });
+
+        resolve(Object.values(articlesMap));
       }
     });
   });
