@@ -511,27 +511,20 @@ var updateBreedWithImage = function (
       }
 
       try {
-        // =========================================================
-        // ✅ CHECK CATEGORY EXISTS
-        // =========================================================
         const categoryCheck = await new Promise((res, rej) =>
           conn.query(
             "SELECT id FROM breedcategory WHERE id = ?",
             [categoryid],
-            (err, rows) => (err ? rej(err) : res(rows))
-          )
+            (err, rows) => (err ? rej(err) : res(rows)),
+          ),
         );
 
         if (categoryCheck.length === 0) {
           await new Promise(res => conn.rollback(() => res()));
           return reject(
-            new Error("Category with id " + categoryid + " does not exist")
+            new Error("Category with id " + categoryid + " does not exist"),
           );
         }
-
-        // =========================================================
-        // ✅ UPDATE BREED MAIN DATA
-        // =========================================================
         const updateBreedResult = await new Promise((res, rej) =>
           conn.query(
             `UPDATE breeds 
@@ -547,21 +540,16 @@ var updateBreedWithImage = function (
               shortDescription,
               id,
             ],
-            (err, result) => (err ? rej(err) : res(result))
-          )
+            (err, result) => (err ? rej(err) : res(result)),
+          ),
         );
 
-        // =========================================================
-        // ✅ TEXT BASED TAG UPDATE (FIXED)
-        // =========================================================
         try {
           // remove old tag mappings
           await new Promise((res, rej) =>
-            conn.query(
-              "DELETE FROM breed_tags WHERE breed_id=?",
-              [id],
-              err => (err ? rej(err) : res())
-            )
+            conn.query("DELETE FROM breed_tags WHERE breed_id=?", [id], err =>
+              err ? rej(err) : res(),
+            ),
           );
 
           // reinsert fresh tags
@@ -572,8 +560,8 @@ var updateBreedWithImage = function (
               conn.query(
                 "SELECT id FROM tags WHERE name=?",
                 [tag],
-                (err, rows) => (err ? rej(err) : res(rows))
-              )
+                (err, rows) => (err ? rej(err) : res(rows)),
+              ),
             );
 
             let tagId;
@@ -583,8 +571,8 @@ var updateBreedWithImage = function (
                 conn.query(
                   "INSERT INTO tags (name) VALUES (?)",
                   [tag],
-                  (err, result) => (err ? rej(err) : res(result))
-                )
+                  (err, result) => (err ? rej(err) : res(result)),
+                ),
               );
 
               tagId = insertTag.insertId;
@@ -596,8 +584,8 @@ var updateBreedWithImage = function (
               conn.query(
                 "INSERT INTO breed_tags (breed_id, tag_id) VALUES (?, ?)",
                 [id, tagId],
-                err => (err ? rej(err) : res())
-              )
+                err => (err ? rej(err) : res()),
+              ),
             );
           }
         } catch (err) {
@@ -606,19 +594,14 @@ var updateBreedWithImage = function (
             reject({
               success: false,
               message: "Internal server error",
-            })
+            }),
           );
         }
 
-        // =========================================================
-        // ✅ UPDATE Q/A
-        // =========================================================
         await new Promise((res, rej) =>
-          conn.query(
-            "DELETE FROM `breedsq&a` WHERE breed_id=?",
-            [id],
-            err => (err ? rej(err) : res())
-          )
+          conn.query("DELETE FROM `breedsq&a` WHERE breed_id=?", [id], err =>
+            err ? rej(err) : res(),
+          ),
         );
 
         if (qa && qa.length > 0) {
@@ -633,14 +616,11 @@ var updateBreedWithImage = function (
             conn.query(
               "INSERT INTO `breedsq&a` (question, answer, extra, breed_id) VALUES ?",
               [qaValues],
-              err => (err ? rej(err) : res())
-            )
+              err => (err ? rej(err) : res()),
+            ),
           );
         }
 
-        // =========================================================
-        // ✅ INSERT NEW IMAGES (OPTIONAL)
-        // =========================================================
         if (imagePath && imagePath.length > 0) {
           const imageValues = imagePath.map(img => [img, id]);
 
@@ -648,16 +628,13 @@ var updateBreedWithImage = function (
             conn.query(
               "INSERT INTO breedsimages (image, breed_id) VALUES ?",
               [imageValues],
-              err => (err ? rej(err) : res())
-            )
+              err => (err ? rej(err) : res()),
+            ),
           );
         }
 
-        // =========================================================
-        // ✅ COMMIT TRANSACTION
-        // =========================================================
         await new Promise((res, rej) =>
-          conn.commit(err => (err ? rej(err) : res()))
+          conn.commit(err => (err ? rej(err) : res())),
         );
 
         resolve(updateBreedResult);
@@ -753,7 +730,7 @@ var showBreedsByAlphabet = function (alphabet, page, limit, callback) {
         b.height AS height, 
         bc.title AS category_title, 
         GROUP_CONCAT(DISTINCT bi.image) AS breed_images,
-        GROUP_CONCAT(DISTINCT t.name) AS tags
+        GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags
 
     FROM breeds b 
     JOIN breedcategory bc ON b.categoryid = bc.id 
@@ -769,7 +746,7 @@ var showBreedsByAlphabet = function (alphabet, page, limit, callback) {
     LIMIT ? OFFSET ?;
   `;
 
-  // ✅ FIXED count query
+  // FIXED count query
   var countQuery = `
     SELECT COUNT(*) AS total 
     FROM breeds 
@@ -791,20 +768,26 @@ var showBreedsByAlphabet = function (alphabet, page, limit, callback) {
           return callback(err, null, null);
         }
 
-        var processedResult = result.map(function (row) {
-          return {
-            breed_id: row.breed_id,
-            breed_title: row.breed_title,
-            slug: row.slug,
-            breed_description: row.breed_description,
-            category_title: row.category_title,
-            lifeSpan: row.lifespan,
-            weight: row.weight,
-            height: row.height,
-            breed_images: row.breed_images ? row.breed_images.split(",") : [],
-            tags: row.tags ? row.tags.split(",") : [],
-          };
-        });
+        const processedResult = result.map(row => ({
+          breed_id: row.breed_id,
+          breed_title: row.breed_title,
+          slug: row.slug,
+          breed_description: row.breed_description,
+          category_title: row.category_title,
+          lifespan: row.lifespan,
+          weight: row.weight,
+          height: row.height,
+          breed_images: row.breed_images ? row.breed_images.split(",") : [],
+          tags: row.tags
+            ? row.tags.split(",").map(tag => {
+                const [id, name] = tag.split(":");
+                return {
+                  id: Number(id),
+                  name,
+                };
+              })
+            : [],
+        }));
 
         var total = countResult[0].total;
 
@@ -828,12 +811,11 @@ const searchBreedsByTitle = function (title, page, limit, callback) {
         b.height AS height, 
         bc.title AS category_title, 
         GROUP_CONCAT(DISTINCT bi.image) AS breed_images,
-        GROUP_CONCAT(DISTINCT t.name) AS tags
+        GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags
 
     FROM breeds b 
     JOIN breedcategory bc ON b.categoryid = bc.id 
     LEFT JOIN breedsimages bi ON b.id = bi.breed_id 
-
     LEFT JOIN breed_tags bt ON b.id = bt.breed_id
     LEFT JOIN tags t ON t.id = bt.tag_id
 
@@ -872,7 +854,15 @@ const searchBreedsByTitle = function (title, page, limit, callback) {
         weight: row.weight,
         height: row.height,
         breed_images: row.breed_images ? row.breed_images.split(",") : [],
-        tags: row.tags ? row.tags.split(",") : [],
+        tags: row.tags
+          ? row.tags.split(",").map(tag => {
+              const [id, name] = tag.split(":");
+              return {
+                id: Number(id),
+                name,
+              };
+            })
+          : [],
       }));
 
       return callback(null, processedResult, total);
@@ -1138,7 +1128,7 @@ const get10BreedsByCategory = () => {
       bc.title AS category_title,
       bc.id AS category_id,
       GROUP_CONCAT(DISTINCT bi.image SEPARATOR '|') AS breed_images,
-      GROUP_CONCAT(DISTINCT t.name) AS tags,
+      GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags,
       ROW_NUMBER() OVER (PARTITION BY bc.id ORDER BY b.id DESC) AS rn
 
     FROM breeds b
@@ -1159,16 +1149,25 @@ const get10BreedsByCategory = () => {
       if (err) {
         reject(err);
       } else {
-        const breeds = result.map(breed => ({
-          breed_id: breed.breed_id,
-          breed_title: breed.breed_title,
-          slug: breed.slug,
-          lifespan: breed.lifespan,
-          weight: breed.weight,
-          height: breed.height,
-          category_title: breed.category_title,
-          breed_images: breed.breed_images ? breed.breed_images.split("|") : [],
-          tags: breed.tags ? breed.tags.split(",") : [],
+        const breeds = result.map(row => ({
+          breed_id: row.breed_id,
+          breed_title: row.breed_title,
+          slug: row.slug,
+          breed_description: row.breed_description,
+          category_title: row.category_title,
+          lifespan: row.lifespan,
+          weight: row.weight,
+          height: row.height,
+          breed_images: row.breed_images ? row.breed_images.split(",") : [],
+          tags: row.tags
+            ? row.tags.split(",").map(tag => {
+                const [id, name] = tag.split(":");
+                return {
+                  id: Number(id),
+                  name,
+                };
+              })
+            : [],
         }));
         resolve(breeds);
       }
@@ -1178,7 +1177,7 @@ const get10BreedsByCategory = () => {
 
 // Tags
 
-const getSingleBreedById = (slug) => {
+const getSingleBreedById = slug => {
   const breedQuery = `
     SELECT
       b.id AS breed_id,
@@ -1191,7 +1190,7 @@ const getSingleBreedById = (slug) => {
       b.height,
       b.shortDescription,
       GROUP_CONCAT(DISTINCT bi.image SEPARATOR '|') AS breed_images,
-      GROUP_CONCAT(DISTINCT t.name) AS tags,
+      GROUP_CONCAT(DISTINCT CONCAT(t.id,':',t.name) ) AS tags,
       b.meta_title,
       b.meta_description,
       b.meta_keywords,
@@ -1244,9 +1243,13 @@ const getSingleBreedById = (slug) => {
           ? breedData.breed_images.split("|")
           : [],
 
-        tags: breedData.tags
-          ? breedData.tags.split(",")
-          : [],
+        tags: breedData.tags ? breedData.tags.split(",").map(tag=>{
+          const[id,name]=tag.split(":")
+          return{
+            id:Number(id),
+            name,
+          }
+        }) : [],
 
         meta_title: breedData.meta_title,
         meta_description: breedData.meta_description,
@@ -1262,7 +1265,7 @@ const getSingleBreedById = (slug) => {
       db.query(qaQuery, [breed.breed_id], (err, qaResult) => {
         if (err) return reject(err);
 
-        breed.qa = qaResult.map((q) => ({
+        breed.qa = qaResult.map(q => ({
           id: q.id,
           question: q.question,
           answer: q.answer,
