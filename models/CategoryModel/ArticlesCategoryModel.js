@@ -177,24 +177,13 @@ var addArticle = function (
   imageUrl,
   categoryid,
   userid,
-  tags
+  tags = [],
+  qa = []
 ) {
   return new Promise(function (resolve, reject) {
     db.beginTransaction(function (err) {
       if (err) return reject(err);
 
-      // ✅ FIX TAGS FIRST
-      if (typeof tags === "string") {
-        tags = tags.split(",").map((t) => Number(t.trim()));
-      }
-
-      if (!Array.isArray(tags)) {
-        tags = [];
-      }
-
-      tags = tags.map((t) => Number(t)).filter(Boolean);
-
-      // Check if slug already exists
       var checkSlugQuery =
         "SELECT COUNT(*) AS count FROM articles WHERE slug = ?";
 
@@ -203,14 +192,13 @@ var addArticle = function (
           return db.rollback(() => reject(err));
         }
 
-        var count = result[0].count;
-        var finalSlug = count > 0 ? slug + "-" + Date.now() : slug;
+        var finalSlug = slug;
+        if (result[0].count > 0) {
+          finalSlug = slug + "-" + Date.now();
+        }
 
-        var insertArticleQuery = `
-          INSERT INTO articles
-          (title, slug, description, image, categoryid, userid)
-          VALUES (?,?,?,?,?,?)
-        `;
+        var insertArticleQuery =
+          "INSERT INTO articles (title, slug, description, image, categoryid, userid) VALUES (?,?,?,?,?,?)";
 
         db.query(
           insertArticleQuery,
@@ -222,33 +210,60 @@ var addArticle = function (
 
             var articleId = result.insertId;
 
-            // ✅ If no tags, commit directly
-            if (tags.length === 0) {
-              return db.commit((err) => {
-                if (err) return db.rollback(() => reject(err));
-                resolve({ articleId });
-              });
-            }
-
-            // ✅ Insert tags
-            var insertTagsQuery =
-              "INSERT INTO article_tags (article_id, tag_id) VALUES ?";
-
-            var tagData = tags.map((tagId) => [articleId, tagId]);
-
-            db.query(insertTagsQuery, [tagData], function (err) {
-              if (err) {
-                return db.rollback(() => reject(err));
+            const saveTags = () => {
+              if (!Array.isArray(tags) || tags.length === 0) {
+                return saveQA();
               }
 
-              db.commit(function (err) {
-                if (err) {
-                  return db.rollback(() => reject(err));
-                }
+              const tagData = tags.map((tagId) => [
+                articleId,
+                Number(tagId),
+              ]);
 
-                resolve({ articleId });
-              });
-            });
+              db.query(
+                "INSERT INTO article_tags (article_id, tag_id) VALUES ?",
+                [tagData],
+                function (err) {
+                  if (err) {
+                    return db.rollback(() => reject(err));
+                  }
+                  saveQA();
+                }
+              );
+            };
+
+            const saveQA = () => {
+              if (!Array.isArray(qa) || qa.length === 0) {
+                return db.commit((err) => {
+                  if (err) return db.rollback(() => reject(err));
+                  resolve({ articleId });
+                });
+              }
+
+              const qaValues = qa.map((item) => [
+                item.question || "",
+                item.answer || "",
+                item.extra || "",
+                articleId,
+              ]);
+
+              db.query(
+                "INSERT INTO article_qa (question, answer, extra, article_id) VALUES ?",
+                [qaValues],
+                function (err) {
+                  if (err) {
+                    return db.rollback(() => reject(err));
+                  }
+
+                  db.commit((err) => {
+                    if (err) return db.rollback(() => reject(err));
+                    resolve({ articleId });
+                  });
+                }
+              );
+            };
+
+            saveTags();
           }
         );
       });
@@ -560,15 +575,61 @@ var checkSlugExists = function (slug) {
 };
 
 const getSingleArticleById = (slug) => {
-  
   return new Promise((resolve, reject) => {
-    var query = `SELECT a.id, a.title,a.slug , a.description , a.image ,c.categoryName,a.meta_title,a.meta_description FROM articles a JOIN articlecategory c ON a.categoryid = c.categoryid WHERE a.slug = ?`;
-    db.query(query, [slug], (err, result) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(result);
-      }
+    const articleQuery = `
+      SELECT 
+        a.id,
+        a.title,
+        a.slug,
+        a.description,
+        a.image,
+        c.categoryName,
+        a.meta_title,
+        a.meta_description
+      FROM articles a
+      JOIN articlecategory c
+        ON a.categoryid = c.categoryid
+      WHERE a.slug = ?
+    `;
+
+    db.query(articleQuery, [slug], (err, articleRows) => {
+      if (err) return reject(err);
+      if (!articleRows.length) return resolve([]);
+
+      const article = {
+        ...articleRows[0],
+        tags: [],
+        qa: [],
+      };
+
+      const articleId = article.id;
+
+      const tagQuery = `
+        SELECT t.id, t.name
+        FROM article_tags at
+        JOIN tags t ON at.tag_id = t.id
+        WHERE at.article_id = ?
+      `;
+
+      const qaQuery = `
+        SELECT id, question, answer, extra
+        FROM article_qa
+        WHERE article_id = ?
+      `;
+
+      db.query(tagQuery, [articleId], (err, tagRows) => {
+        if (err) return reject(err);
+
+        article.tags = tagRows || [];
+
+        db.query(qaQuery, [articleId], (err, qaRows) => {
+          if (err) return reject(err);
+
+          article.qa = qaRows || [];
+
+          resolve(article);
+        });
+      });
     });
   });
 };
