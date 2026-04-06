@@ -1,58 +1,128 @@
 var db = require("../../config/DatabaseConnection.js");
 
 // Create pet record
-var createPet = function (petData) {
-  var insertQuery = `INSERT INTO pets (
-    user_id, pet_name, category_id, breed_id, gender, country_id, address, 
-    latitude, longitude, date_of_birth, color, size_category, neutered, 
-    microchipped, microchip_id, temperament, activity_level, adopted, 
-    adoption_date, adoption_source, is_active, is_deleted, is_visible_nearby
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-  
-  var selectQuery = "SELECT * FROM pets WHERE pet_id = LAST_INSERT_ID()";
+var createPet = function (petData, tags = "") {
+  const insertQuery = `
+    INSERT INTO pets (
+      user_id, pet_name, category_id, breed_id, gender, country_id, address,
+      latitude, longitude, date_of_birth, color, size_category, neutered,
+      microchipped, microchip_id, temperament, activity_level, adopted,
+      adoption_date, adoption_source, is_active, is_deleted, is_visible_nearby
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
 
   return new Promise((resolve, reject) => {
-    db.query(
-      insertQuery,
-      [
-        petData.user_id,
-        petData.pet_name,
-        petData.category_id,
-        petData.breed_id,
-        petData.gender || null,
-        petData.country_id,
-        petData.address || null,
-        petData.latitude || null,
-        petData.longitude || null,
-        petData.date_of_birth || null,
-        petData.color || null,
-        petData.size_category || null,
-        petData.neutered ? 1 : 0,
-        petData.microchipped ? 1 : 0,
-        petData.microchip_id || null,
-        petData.temperament || null,
-        petData.activity_level || null,
-        petData.adopted !== undefined ? (petData.adopted ? 1 : 0) : 1,
-        petData.adoption_date || null,
-        petData.adoption_source || null,
-        petData.is_active !== undefined ? (petData.is_active ? 1 : 0) : 1,
-        petData.is_deleted !== undefined ? (petData.is_deleted ? 1 : 0) : 0,
-        petData.is_visible_nearby !== undefined ? (petData.is_visible_nearby ? 1 : 0) : 1,
-      ],
-      function (insertErr) {
-        if (insertErr) {
-          reject(insertErr);
-        } else {
-          db.query(selectQuery, function (selectErr, result) {
-            if (selectErr) {
-              reject(selectErr);
-            } else {
-              resolve(result[0]);
+    db.beginTransaction((err) => {
+      if (err) return reject(err);
+
+      db.query(
+        insertQuery,
+        [
+          petData.user_id,
+          petData.pet_name,
+          petData.category_id,
+          petData.breed_id,
+          petData.gender || null,
+          petData.country_id,
+          petData.address || null,
+          petData.latitude || null,
+          petData.longitude || null,
+          petData.date_of_birth || null,
+          petData.color || null,
+          petData.size_category || null,
+          petData.neutered ? 1 : 0,
+          petData.microchipped ? 1 : 0,
+          petData.microchip_id || null,
+          petData.temperament || null,
+          petData.activity_level || null,
+          petData.adopted !== undefined ? (petData.adopted ? 1 : 0) : 1,
+          petData.adoption_date || null,
+          petData.adoption_source || null,
+          petData.is_active !== undefined ? (petData.is_active ? 1 : 0) : 1,
+          petData.is_deleted !== undefined ? (petData.is_deleted ? 1 : 0) : 0,
+          petData.is_visible_nearby !== undefined
+            ? (petData.is_visible_nearby ? 1 : 0)
+            : 1,
+        ],
+        async function (insertErr, result) {
+          if (insertErr) {
+            return db.rollback(() => reject(insertErr));
+          }
+
+          const petId = result.insertId;
+
+          try {
+            let parsedTags = [];
+
+            if (typeof tags === "string" && tags.trim()) {
+              parsedTags = tags
+                .split(",")
+                .map((tag) => tag.trim())
+                .filter((tag) => tag);
             }
-          });
+
+            const tagIds = [];
+
+            for (const tagName of parsedTags) {
+              const existingTag = await new Promise((res, rej) => {
+                db.query(
+                  "SELECT id FROM tags WHERE name = ?",
+                  [tagName],
+                  (err, rows) => {
+                    if (err) return rej(err);
+                    res(rows);
+                  }
+                );
+              });
+
+              let tagId;
+
+              if (existingTag.length > 0) {
+                tagId = existingTag[0].id;
+              } else {
+                const insertedTag = await new Promise((res, rej) => {
+                  db.query(
+                    "INSERT INTO tags (name) VALUES (?)",
+                    [tagName],
+                    (err, insertResult) => {
+                      if (err) return rej(err);
+                      res(insertResult);
+                    }
+                  );
+                });
+
+                tagId = insertedTag.insertId;
+              }
+
+              tagIds.push(tagId);
+            }
+
+            if (tagIds.length > 0) {
+              const uniqueTagIds = [...new Set(tagIds)];
+              const tagData = uniqueTagIds.map((tagId) => [petId, tagId]);
+
+              await new Promise((res, rej) => {
+                db.query(
+                  "INSERT INTO pet_tags (pet_id, tag_id) VALUES ?",
+                  [tagData],
+                  (err) => {
+                    if (err) return rej(err);
+                    res();
+                  }
+                );
+              });
+            }
+
+            db.commit((err) => {
+              if (err) return db.rollback(() => reject(err));
+              resolve({ pet_id: petId });
+            });
+          } catch (error) {
+            db.rollback(() => reject(error));
+          }
         }
-      }
-    );
+      );
+    });
   });
 };
 
@@ -91,17 +161,31 @@ var createPetImages = function (petId, images) {
 };
 
 // Get user pets with images
+// Get all pets of logged in user with images + tags
 var getUserPets = function (userId) {
   var query = `
     SELECT 
       p.*,
       GROUP_CONCAT(
-        CONCAT(pi.image_id, ':::', pi.image_url, ':::', IFNULL(pi.image_type, 'gallery'), ':::', IFNULL(pi.sort_order, 0))
+        DISTINCT CONCAT(
+          pi.image_id, ':::', 
+          pi.image_url, ':::', 
+          IFNULL(pi.image_type, 'gallery'), ':::', 
+          IFNULL(pi.sort_order, 0)
+        )
         ORDER BY pi.sort_order
         SEPARATOR '|||'
-      ) AS images
+      ) AS images,
+
+      GROUP_CONCAT(
+        DISTINCT t.name
+        SEPARATOR ','
+      ) AS tags
+
     FROM pets p
     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+    LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
+    LEFT JOIN tags t ON pt.tag_id = t.id
     WHERE p.user_id = ? AND p.is_deleted = 0
     GROUP BY p.pet_id
     ORDER BY p.created_at DESC
@@ -112,27 +196,32 @@ var getUserPets = function (userId) {
       if (err) {
         reject(err);
       } else {
-        // Parse images from concatenated string
-        var pets = result.map((pet) => {
-          var petObj = { ...pet };
-          if (pet.images) {
-            petObj.images = pet.images.split('|||').map((imgStr) => {
-              var parts = imgStr.split(':::');
-              if (parts.length === 4) {
-                return {
-                  image_id: parseInt(parts[0]),
-                  image_url: parts[1],
-                  image_type: parts[2],
-                  sort_order: parseInt(parts[3])
-                };
-              }
-              return null;
-            }).filter(img => img !== null);
+        const pets = result.map((pet) => {
+          const petObj = { ...pet };
+
+          // Parse images
+          if (petObj.images) {
+            petObj.images = petObj.images.split("|||").map((imgStr) => {
+              const parts = imgStr.split(":::");
+              return {
+                image_id: parseInt(parts[0]),
+                image_url: parts[1],
+                image_type: parts[2],
+                sort_order: parseInt(parts[3]),
+              };
+            });
           } else {
             petObj.images = [];
           }
+
+          // Parse tags
+          petObj.tags = petObj.tags
+            ? petObj.tags.split(",").map((tag) => tag.trim())
+            : [];
+
           return petObj;
         });
+
         resolve(pets);
       }
     });
@@ -140,17 +229,31 @@ var getUserPets = function (userId) {
 };
 
 // Get pet by ID
+// Get pet by ID with images + tags
 var getPetById = function (petId, userId) {
   var query = `
     SELECT 
       p.*,
       GROUP_CONCAT(
-        CONCAT(pi.image_id, ':::', pi.image_url, ':::', IFNULL(pi.image_type, 'gallery'), ':::', IFNULL(pi.sort_order, 0))
+        DISTINCT CONCAT(
+          pi.image_id, ':::', 
+          pi.image_url, ':::', 
+          IFNULL(pi.image_type, 'gallery'), ':::', 
+          IFNULL(pi.sort_order, 0)
+        )
         ORDER BY pi.sort_order
         SEPARATOR '|||'
-      ) AS images
+      ) AS images,
+
+      GROUP_CONCAT(
+        DISTINCT t.name
+        SEPARATOR ','
+      ) AS tags
+
     FROM pets p
     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+    LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
+    LEFT JOIN tags t ON pt.tag_id = t.id
     WHERE p.pet_id = ? AND p.user_id = ? AND p.is_deleted = 0
     GROUP BY p.pet_id
   `;
@@ -163,27 +266,36 @@ var getPetById = function (petId, userId) {
         resolve(null);
       } else {
         var pet = result[0];
+
+        // Parse images
         if (pet.images) {
-          pet.images = pet.images.split('|||').map((imgStr) => {
-            var parts = imgStr.split(':::');
-            if (parts.length === 4) {
+          pet.images = pet.images
+            .split("|||")
+            .map((imgStr) => {
+              var parts = imgStr.split(":::");
               return {
                 image_id: parseInt(parts[0]),
                 image_url: parts[1],
                 image_type: parts[2],
-                sort_order: parseInt(parts[3])
+                sort_order: parseInt(parts[3]),
               };
-            }
-            return null;
-          }).filter(img => img !== null);
+            });
         } else {
           pet.images = [];
         }
+
+        // Parse tags
+        pet.tags = pet.tags
+          ? pet.tags.split(",").map((tag) => tag.trim())
+          : [];
+
         resolve(pet);
       }
     });
   });
 };
+
+
 
 // Update pet
 var updatePet = function (petId, userId, updates) {
@@ -227,6 +339,84 @@ var updatePet = function (petId, userId, updates) {
           .catch((err) => reject(err));
       }
     });
+  });
+};
+
+// Update pet tags
+var updatePetTags = function (petId, tags = "") {
+  return new Promise(async (resolve, reject) => {
+    try {
+      await new Promise((res, rej) => {
+        db.query("DELETE FROM pet_tags WHERE pet_id = ?", [petId], (err) => {
+          if (err) return rej(err);
+          res();
+        });
+      });
+
+      if (!tags || !tags.trim()) {
+        return resolve(true);
+      }
+
+      const parsedTags = tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag);
+
+      const tagIds = [];
+
+      for (const tagName of parsedTags) {
+        const existingTag = await new Promise((res, rej) => {
+          db.query(
+            "SELECT id FROM tags WHERE name = ?",
+            [tagName],
+            (err, rows) => {
+              if (err) return rej(err);
+              res(rows);
+            }
+          );
+        });
+
+        let tagId;
+
+        if (existingTag.length > 0) {
+          tagId = existingTag[0].id;
+        } else {
+          const insertedTag = await new Promise((res, rej) => {
+            db.query(
+              "INSERT INTO tags (name) VALUES (?)",
+              [tagName],
+              (err, result) => {
+                if (err) return rej(err);
+                res(result);
+              }
+            );
+          });
+
+          tagId = insertedTag.insertId;
+        }
+
+        tagIds.push(tagId);
+      }
+
+      const values = [...new Set(tagIds)].map((tagId) => [petId, tagId]);
+
+      if (values.length > 0) {
+        await new Promise((res, rej) => {
+          db.query(
+            "INSERT INTO pet_tags (pet_id, tag_id) VALUES ?",
+            [values],
+            (err) => {
+              if (err) return rej(err);
+              res();
+            }
+          );
+        });
+      }
+
+      resolve(true);
+    } catch (error) {
+      reject(error);
+    }
   });
 };
 
@@ -515,6 +705,7 @@ module.exports = {
   getPetDevices: getPetDevices,
   updatePetDevice: updatePetDevice,
   reassignPetDevice: reassignPetDevice,
-  getNearbyPets: getNearbyPets
+  getNearbyPets: getNearbyPets,
+  updatePetTags: updatePetTags,
 };
 
