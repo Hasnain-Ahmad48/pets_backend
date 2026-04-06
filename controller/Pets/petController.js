@@ -29,6 +29,7 @@ exports.addPet = async function (req, res) {
       adoption_source,
       is_active,
       is_visible_nearby,
+      tags,
     } = req.body;
 
     // Validate required fields
@@ -66,7 +67,7 @@ exports.addPet = async function (req, res) {
     };
 
     // Create pet
-    const pet = await petModel.createPet(petData);
+    const pet = await petModel.createPet(petData,tags);
     const petId = pet.pet_id;
 
     // Handle images
@@ -142,6 +143,8 @@ exports.updatePet = async function (req, res) {
         message: "Pet not found or access denied",
       });
     }
+
+
 
     // Prepare update data
     const updates = {};
