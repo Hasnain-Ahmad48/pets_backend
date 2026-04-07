@@ -1,7 +1,7 @@
 var petModel = require("../../models/Pets/petModel.js");
 var fs = require("fs");
 var path = require("path");
-
+const slugify = require("slugify");
 // Add pet with multiple images
 exports.addPet = async function (req, res) {
   try {
@@ -39,11 +39,12 @@ exports.addPet = async function (req, res) {
         message: "Missing required fields: pet_name, category_id, breed_id, country_id",
       });
     }
-
+const slug = slugify(pet_name, { lower: true, strict: true }); // converts to lowercase and removes special chars
     // Prepare pet data
     const petData = {
       user_id: userId,
       pet_name,
+      slug,
       category_id: parseInt(category_id),
       breed_id: parseInt(breed_id),
       gender: gender || null,
@@ -274,6 +275,40 @@ exports.addPetDevice = async function (req, res) {
     res.status(500).json({
       success: false,
       message: error.message || "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+// Get pet by slug
+exports.getPetBySlug = async function (req, res) {
+  try {
+    const slug = req.params.slug;
+    if (!slug) {
+      return res.status(400).json({
+        success: false,
+        message: "Slug is required",
+      });
+    }
+
+    const pet = await petModel.getPetBySlug(slug);
+    if (!pet) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Pet fetched successfully",
+      data: pet,
+    });
+  } catch (error) {
+    console.error("Get pet by slug error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
       error: error.message,
     });
   }

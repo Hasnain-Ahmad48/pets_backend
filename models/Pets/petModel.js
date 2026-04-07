@@ -4,11 +4,11 @@ var db = require("../../config/DatabaseConnection.js");
 var createPet = function (petData, tags = "") {
   const insertQuery = `
     INSERT INTO pets (
-      user_id, pet_name, category_id, breed_id, gender, country_id, address,
+      user_id, pet_name, slug, category_id, breed_id, gender, country_id, address,
       latitude, longitude, date_of_birth, color, size_category, neutered,
       microchipped, microchip_id, temperament, activity_level, adopted,
       adoption_date, adoption_source, is_active, is_deleted, is_visible_nearby
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
   `;
 
   return new Promise((resolve, reject) => {
@@ -20,6 +20,7 @@ var createPet = function (petData, tags = "") {
         [
           petData.user_id,
           petData.pet_name,
+          petData.slug,
           petData.category_id,
           petData.breed_id,
           petData.gender || null,
@@ -122,6 +123,69 @@ var createPet = function (petData, tags = "") {
           }
         }
       );
+    });
+  });
+};
+
+// Get pet by slug
+var getPetBySlug = function (slug) {
+  var query = `
+    SELECT 
+      p.*,
+      GROUP_CONCAT(
+        CONCAT(pi.image_id, ':::', pi.image_url, ':::', IFNULL(pi.image_type,'gallery'), ':::', IFNULL(pi.sort_order,0))
+        ORDER BY pi.sort_order
+        SEPARATOR '|||'
+      ) AS images,
+      GROUP_CONCAT(
+        CONCAT(t.tag_id, ':::', t.tag_name)
+        ORDER BY t.tag_name
+        SEPARATOR '|||'
+      ) AS tags
+    FROM pets p
+    LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+    LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
+    LEFT JOIN tags t ON pt.tag_id = t.tag_id
+    WHERE p.slug = ? AND p.is_deleted = 0
+    GROUP BY p.pet_id
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [slug], function (err, result) {
+      if (err) return reject(err);
+      if (result.length === 0) return resolve(null);
+
+      var pet = result[0];
+
+      // Process images
+      if (pet.images) {
+        pet.images = pet.images.split('|||').map((imgStr) => {
+          const parts = imgStr.split(':::');
+          return parts.length === 4 ? {
+            image_id: parseInt(parts[0]),
+            image_url: parts[1],
+            image_type: parts[2],
+            sort_order: parseInt(parts[3])
+          } : null;
+        }).filter(img => img !== null);
+      } else {
+        pet.images = [];
+      }
+
+      // Process tags (tag_id + tag_name)
+      if (pet.tags) {
+        pet.tags = pet.tags.split('|||').map(tagStr => {
+          const parts = tagStr.split(':::');
+          return parts.length === 2 ? {
+            tag_id: parseInt(parts[0]),
+            tag_name: parts[1]
+          } : null;
+        }).filter(tag => tag !== null);
+      } else {
+        pet.tags = [];
+      }
+
+      resolve(pet);
     });
   });
 };
@@ -707,5 +771,6 @@ module.exports = {
   reassignPetDevice: reassignPetDevice,
   getNearbyPets: getNearbyPets,
   updatePetTags: updatePetTags,
+  getPetBySlug:getPetBySlug
 };
 
