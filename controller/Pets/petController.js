@@ -106,12 +106,20 @@ exports.getUserPets = async function (req, res) {
   try {
     const userId = req.user.id; // From JWT middleware
 
-    const pets = await petModel.getUserPets(userId);
+    // pagination params
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const result = await petModel.getUserPets(userId, page, limit);
 
     res.status(200).json({
       success: true,
       message: "Pets fetched successfully",
-      data: pets,
+      page,
+      limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
+      data: result.pets,
     });
   } catch (error) {
     console.error("Get user pets error:", error);

@@ -1,7 +1,69 @@
 var db = require("../../config/DatabaseConnection.js");
 
+var formatPetResponse = function (pet) {
+  const petObj = { ...pet };
+
+  // Remove unwanted internal IDs
+  delete petObj.user_id;
+  delete petObj.breed_id;
+  delete petObj.country_id;
+
+  // Parse images
+  petObj.images = petObj.images
+    ? petObj.images.split("|||").map((imgStr) => {
+        const parts = imgStr.split(":::");
+        return {
+          image_id: parseInt(parts[0]),
+          image_url: parts[1],
+          image_type: parts[2],
+          sort_order: parseInt(parts[3]),
+        };
+      })
+    : [];
+
+  // Parse tags
+  petObj.tags = petObj.tags
+    ? petObj.tags.split("|||").map((tagStr) => {
+        const parts = tagStr.split(":::");
+        return {
+          id: parseInt(parts[0]),
+          name: parts[1],
+        };
+      })
+    : [];
+
+  return petObj;
+};
+
+var generateUniqueSlug = function (baseSlug) {
+  return new Promise((resolve, reject) => {
+    const query = "SELECT slug FROM pets WHERE slug LIKE ?";
+
+    db.query(query, [`${baseSlug}%`], (err, rows) => {
+      if (err) return reject(err);
+
+      if (rows.length === 0) {
+        return resolve(baseSlug);
+      }
+
+      let newSlug = baseSlug;
+      let counter = 1;
+
+      const existingSlugs = rows.map(row => row.slug);
+
+      while (existingSlugs.includes(newSlug)) {
+        newSlug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+
+      resolve(newSlug);
+    });
+  });
+};
+
 // Create pet record
-var createPet = function (petData, tags = "") {
+var createPet = async function (petData, tags = "") {
+  petData.slug = await generateUniqueSlug(petData.slug);
   const insertQuery = `
     INSERT INTO pets (
       user_id, pet_name, slug, category_id, breed_id, gender, country_id, address,
@@ -12,7 +74,7 @@ var createPet = function (petData, tags = "") {
   `;
 
   return new Promise((resolve, reject) => {
-    db.beginTransaction((err) => {
+    db.beginTransaction(err => {
       if (err) return reject(err);
 
       db.query(
@@ -42,7 +104,9 @@ var createPet = function (petData, tags = "") {
           petData.is_active !== undefined ? (petData.is_active ? 1 : 0) : 1,
           petData.is_deleted !== undefined ? (petData.is_deleted ? 1 : 0) : 0,
           petData.is_visible_nearby !== undefined
-            ? (petData.is_visible_nearby ? 1 : 0)
+            ? petData.is_visible_nearby
+              ? 1
+              : 0
             : 1,
         ],
         async function (insertErr, result) {
@@ -58,8 +122,8 @@ var createPet = function (petData, tags = "") {
             if (typeof tags === "string" && tags.trim()) {
               parsedTags = tags
                 .split(",")
-                .map((tag) => tag.trim())
-                .filter((tag) => tag);
+                .map(tag => tag.trim())
+                .filter(tag => tag);
             }
 
             const tagIds = [];
@@ -72,7 +136,7 @@ var createPet = function (petData, tags = "") {
                   (err, rows) => {
                     if (err) return rej(err);
                     res(rows);
-                  }
+                  },
                 );
               });
 
@@ -88,7 +152,7 @@ var createPet = function (petData, tags = "") {
                     (err, insertResult) => {
                       if (err) return rej(err);
                       res(insertResult);
-                    }
+                    },
                   );
                 });
 
@@ -100,28 +164,28 @@ var createPet = function (petData, tags = "") {
 
             if (tagIds.length > 0) {
               const uniqueTagIds = [...new Set(tagIds)];
-              const tagData = uniqueTagIds.map((tagId) => [petId, tagId]);
+              const tagData = uniqueTagIds.map(tagId => [petId, tagId]);
 
               await new Promise((res, rej) => {
                 db.query(
                   "INSERT INTO pet_tags (pet_id, tag_id) VALUES ?",
                   [tagData],
-                  (err) => {
+                  err => {
                     if (err) return rej(err);
                     res();
-                  }
+                  },
                 );
               });
             }
 
-            db.commit((err) => {
+            db.commit(err => {
               if (err) return db.rollback(() => reject(err));
-              resolve({ pet_id: petId });
+              resolve({pet_id: petId});
             });
           } catch (error) {
             db.rollback(() => reject(error));
           }
-        }
+        },
       );
     });
   });
@@ -132,20 +196,31 @@ var getPetBySlug = function (slug) {
   var query = `
     SELECT 
       p.*,
+
       GROUP_CONCAT(
-        CONCAT(pi.image_id, ':::', pi.image_url, ':::', IFNULL(pi.image_type,'gallery'), ':::', IFNULL(pi.sort_order,0))
+        DISTINCT CONCAT(
+          pi.image_id, ':::',
+          pi.image_url, ':::',
+          IFNULL(pi.image_type, 'gallery'), ':::',
+          IFNULL(pi.sort_order, 0)
+        )
         ORDER BY pi.sort_order
         SEPARATOR '|||'
       ) AS images,
+
       GROUP_CONCAT(
-        CONCAT(t.tag_id, ':::', t.tag_name)
-        ORDER BY t.tag_name
+        DISTINCT CONCAT(
+          t.id, ':::',
+          t.name
+        )
+        ORDER BY t.name
         SEPARATOR '|||'
       ) AS tags
+
     FROM pets p
     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
-    LEFT JOIN tags t ON pt.tag_id = t.tag_id
+    LEFT JOIN tags t ON pt.tag_id = t.id
     WHERE p.slug = ? AND p.is_deleted = 0
     GROUP BY p.pet_id
   `;
@@ -155,37 +230,10 @@ var getPetBySlug = function (slug) {
       if (err) return reject(err);
       if (result.length === 0) return resolve(null);
 
-      var pet = result[0];
+      const pet = result[0];
 
-      // Process images
-      if (pet.images) {
-        pet.images = pet.images.split('|||').map((imgStr) => {
-          const parts = imgStr.split(':::');
-          return parts.length === 4 ? {
-            image_id: parseInt(parts[0]),
-            image_url: parts[1],
-            image_type: parts[2],
-            sort_order: parseInt(parts[3])
-          } : null;
-        }).filter(img => img !== null);
-      } else {
-        pet.images = [];
-      }
-
-      // Process tags (tag_id + tag_name)
-      if (pet.tags) {
-        pet.tags = pet.tags.split('|||').map(tagStr => {
-          const parts = tagStr.split(':::');
-          return parts.length === 2 ? {
-            tag_id: parseInt(parts[0]),
-            tag_name: parts[1]
-          } : null;
-        }).filter(tag => tag !== null);
-      } else {
-        pet.tags = [];
-      }
-
-      resolve(pet);
+      // Parse images
+      resolve(formatPetResponse(result[0]));
     });
   });
 };
@@ -197,12 +245,12 @@ var createPetImages = function (petId, images) {
   }
 
   var insertQuery = `INSERT INTO pet_images (pet_id, image_url, image_type, sort_order) VALUES ?`;
-  
+
   var values = images.map((img, index) => [
     petId,
     img.image_url,
-    img.image_type || 'gallery',
-    img.sort_order || index
+    img.image_type || "gallery",
+    img.sort_order || index,
   ]);
 
   return new Promise((resolve, reject) => {
@@ -211,7 +259,8 @@ var createPetImages = function (petId, images) {
         reject(err);
       } else {
         // Fetch inserted images
-        var selectQuery = "SELECT * FROM pet_images WHERE pet_id = ? ORDER BY sort_order";
+        var selectQuery =
+          "SELECT * FROM pet_images WHERE pet_id = ? ORDER BY sort_order";
         db.query(selectQuery, [petId], function (selectErr, imagesResult) {
           if (selectErr) {
             reject(selectErr);
@@ -224,12 +273,23 @@ var createPetImages = function (petId, images) {
   });
 };
 
-// Get user pets with images
-// Get all pets of logged in user with images + tags
-var getUserPets = function (userId) {
-  var query = `
+// Get user pets
+
+var getUserPets = function (userId, page = 1, limit = 20) {
+  const offset = (page - 1) * limit;
+
+  const countQuery = `
+    SELECT COUNT(*) AS total
+    FROM pets
+    WHERE user_id = ? AND is_deleted = 0
+  `;
+
+  const dataQuery = `
     SELECT 
       p.*,
+      b.title AS breed,
+      c.name AS country,
+
       GROUP_CONCAT(
         DISTINCT CONCAT(
           pi.image_id, ':::', 
@@ -242,58 +302,52 @@ var getUserPets = function (userId) {
       ) AS images,
 
       GROUP_CONCAT(
-        DISTINCT t.name
-        SEPARATOR ','
+        DISTINCT CONCAT(
+          t.id, ':::', t.name
+        )
+        SEPARATOR '|||'
       ) AS tags
 
     FROM pets p
     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
     LEFT JOIN tags t ON pt.tag_id = t.id
+    LEFT JOIN breeds b ON p.breed_id = b.id
+    LEFT JOIN countries c ON p.country_id = c.id
     WHERE p.user_id = ? AND p.is_deleted = 0
     GROUP BY p.pet_id
     ORDER BY p.created_at DESC
+    LIMIT ? OFFSET ?
   `;
 
   return new Promise((resolve, reject) => {
-    db.query(query, [userId], function (err, result) {
-      if (err) {
-        reject(err);
-      } else {
-        const pets = result.map((pet) => {
-          const petObj = { ...pet };
+    db.query(countQuery, [userId], function (countErr, countResult) {
+      if (countErr) return reject(countErr);
 
-          // Parse images
-          if (petObj.images) {
-            petObj.images = petObj.images.split("|||").map((imgStr) => {
-              const parts = imgStr.split(":::");
-              return {
-                image_id: parseInt(parts[0]),
-                image_url: parts[1],
-                image_type: parts[2],
-                sort_order: parseInt(parts[3]),
-              };
-            });
-          } else {
-            petObj.images = [];
-          }
+      const total = countResult[0].total;
 
-          // Parse tags
-          petObj.tags = petObj.tags
-            ? petObj.tags.split(",").map((tag) => tag.trim())
-            : [];
+      db.query(
+        dataQuery,
+        [userId, limit, offset],
+        function (err, result) {
+          if (err) return reject(err);
 
-          return petObj;
-        });
+          const pets = result.map(formatPetResponse);
 
-        resolve(pets);
-      }
+          resolve({
+            total,
+            pets,
+          });
+        }
+      );
     });
   });
 };
 
 // Get pet by ID
 // Get pet by ID with images + tags
+
+
 var getPetById = function (petId, userId) {
   var query = `
     SELECT 
@@ -333,25 +387,21 @@ var getPetById = function (petId, userId) {
 
         // Parse images
         if (pet.images) {
-          pet.images = pet.images
-            .split("|||")
-            .map((imgStr) => {
-              var parts = imgStr.split(":::");
-              return {
-                image_id: parseInt(parts[0]),
-                image_url: parts[1],
-                image_type: parts[2],
-                sort_order: parseInt(parts[3]),
-              };
-            });
+          pet.images = pet.images.split("|||").map(imgStr => {
+            var parts = imgStr.split(":::");
+            return {
+              image_id: parseInt(parts[0]),
+              image_url: parts[1],
+              image_type: parts[2],
+              sort_order: parseInt(parts[3]),
+            };
+          });
         } else {
           pet.images = [];
         }
 
         // Parse tags
-        pet.tags = pet.tags
-          ? pet.tags.split(",").map((tag) => tag.trim())
-          : [];
+        pet.tags = pet.tags ? pet.tags.split(",").map(tag => tag.trim()) : [];
 
         resolve(pet);
       }
@@ -359,20 +409,35 @@ var getPetById = function (petId, userId) {
   });
 };
 
-
-
 // Update pet
 var updatePet = function (petId, userId, updates) {
   var allowedFields = [
-    'pet_name', 'category_id', 'breed_id', 'gender', 'country_id', 'address',
-    'latitude', 'longitude', 'date_of_birth', 'color', 'size_category',
-    'neutered', 'microchipped', 'microchip_id', 'temperament', 'activity_level',
-    'adopted', 'adoption_date', 'adoption_source', 'is_active', 'is_deleted',
-    'is_visible_nearby'
+    "pet_name",
+    "category_id",
+    "breed_id",
+    "gender",
+    "country_id",
+    "address",
+    "latitude",
+    "longitude",
+    "date_of_birth",
+    "color",
+    "size_category",
+    "neutered",
+    "microchipped",
+    "microchip_id",
+    "temperament",
+    "activity_level",
+    "adopted",
+    "adoption_date",
+    "adoption_source",
+    "is_active",
+    "is_deleted",
+    "is_visible_nearby",
   ];
 
   var fields = Object.keys(updates).filter(
-    (key) => updates[key] !== undefined && allowedFields.includes(key)
+    key => updates[key] !== undefined && allowedFields.includes(key),
   );
 
   if (fields.length === 0) {
@@ -380,15 +445,15 @@ var updatePet = function (petId, userId, updates) {
   }
 
   // Convert boolean values to 0/1
-  var values = fields.map((field) => {
+  var values = fields.map(field => {
     var value = updates[field];
-    if (typeof value === 'boolean') {
+    if (typeof value === "boolean") {
       return value ? 1 : 0;
     }
     return value;
   });
-  
-  var setClause = fields.map((field) => `${field} = ?`).join(", ");
+
+  var setClause = fields.map(field => `${field} = ?`).join(", ");
   var sql = `UPDATE pets SET ${setClause} WHERE pet_id = ? AND user_id = ?`;
   values.push(petId, userId);
 
@@ -399,8 +464,8 @@ var updatePet = function (petId, userId, updates) {
       } else {
         // Fetch updated pet
         getPetById(petId, userId)
-          .then((pet) => resolve(pet))
-          .catch((err) => reject(err));
+          .then(pet => resolve(pet))
+          .catch(err => reject(err));
       }
     });
   });
@@ -411,7 +476,7 @@ var updatePetTags = function (petId, tags = "") {
   return new Promise(async (resolve, reject) => {
     try {
       await new Promise((res, rej) => {
-        db.query("DELETE FROM pet_tags WHERE pet_id = ?", [petId], (err) => {
+        db.query("DELETE FROM pet_tags WHERE pet_id = ?", [petId], err => {
           if (err) return rej(err);
           res();
         });
@@ -423,8 +488,8 @@ var updatePetTags = function (petId, tags = "") {
 
       const parsedTags = tags
         .split(",")
-        .map((tag) => tag.trim())
-        .filter((tag) => tag);
+        .map(tag => tag.trim())
+        .filter(tag => tag);
 
       const tagIds = [];
 
@@ -436,7 +501,7 @@ var updatePetTags = function (petId, tags = "") {
             (err, rows) => {
               if (err) return rej(err);
               res(rows);
-            }
+            },
           );
         });
 
@@ -452,7 +517,7 @@ var updatePetTags = function (petId, tags = "") {
               (err, result) => {
                 if (err) return rej(err);
                 res(result);
-              }
+              },
             );
           });
 
@@ -462,17 +527,17 @@ var updatePetTags = function (petId, tags = "") {
         tagIds.push(tagId);
       }
 
-      const values = [...new Set(tagIds)].map((tagId) => [petId, tagId]);
+      const values = [...new Set(tagIds)].map(tagId => [petId, tagId]);
 
       if (values.length > 0) {
         await new Promise((res, rej) => {
           db.query(
             "INSERT INTO pet_tags (pet_id, tag_id) VALUES ?",
             [values],
-            (err) => {
+            err => {
               if (err) return rej(err);
               res();
-            }
+            },
           );
         });
       }
@@ -572,7 +637,8 @@ var getPetDevices = function (petId, userId) {
 var updatePetDevice = function (deviceId, petId, userId, updates) {
   // Verify pet belongs to user
   var verifyQuery = "SELECT pet_id FROM pets WHERE pet_id = ? AND user_id = ?";
-  var updateQuery = "UPDATE pet_devices SET unassigned_at = ? WHERE id = ? AND pet_id = ?";
+  var updateQuery =
+    "UPDATE pet_devices SET unassigned_at = ? WHERE id = ? AND pet_id = ?";
   var selectQuery = "SELECT * FROM pet_devices WHERE id = ?";
 
   return new Promise((resolve, reject) => {
@@ -583,19 +649,23 @@ var updatePetDevice = function (deviceId, petId, userId, updates) {
         reject(new Error("Pet not found or access denied"));
       } else {
         var unassignedAt = updates.unassigned_at || new Date();
-        db.query(updateQuery, [unassignedAt, deviceId, petId], function (updateErr) {
-          if (updateErr) {
-            reject(updateErr);
-          } else {
-            db.query(selectQuery, [deviceId], function (selectErr, result) {
-              if (selectErr) {
-                reject(selectErr);
-              } else {
-                resolve(result[0]);
-              }
-            });
-          }
-        });
+        db.query(
+          updateQuery,
+          [unassignedAt, deviceId, petId],
+          function (updateErr) {
+            if (updateErr) {
+              reject(updateErr);
+            } else {
+              db.query(selectQuery, [deviceId], function (selectErr, result) {
+                if (selectErr) {
+                  reject(selectErr);
+                } else {
+                  resolve(result[0]);
+                }
+              });
+            }
+          },
+        );
       }
     });
   });
@@ -605,7 +675,8 @@ var updatePetDevice = function (deviceId, petId, userId, updates) {
 var reassignPetDevice = function (deviceId, petId, userId) {
   // Verify pet belongs to user
   var verifyQuery = "SELECT pet_id FROM pets WHERE pet_id = ? AND user_id = ?";
-  var updateQuery = "UPDATE pet_devices SET unassigned_at = NULL, assigned_at = ? WHERE id = ? AND pet_id = ?";
+  var updateQuery =
+    "UPDATE pet_devices SET unassigned_at = NULL, assigned_at = ? WHERE id = ? AND pet_id = ?";
   var selectQuery = "SELECT * FROM pet_devices WHERE id = ?";
 
   return new Promise((resolve, reject) => {
@@ -616,19 +687,23 @@ var reassignPetDevice = function (deviceId, petId, userId) {
         reject(new Error("Pet not found or access denied"));
       } else {
         var assignedAt = new Date();
-        db.query(updateQuery, [assignedAt, deviceId, petId], function (updateErr) {
-          if (updateErr) {
-            reject(updateErr);
-          } else {
-            db.query(selectQuery, [deviceId], function (selectErr, result) {
-              if (selectErr) {
-                reject(selectErr);
-              } else {
-                resolve(result[0]);
-              }
-            });
-          }
-        });
+        db.query(
+          updateQuery,
+          [assignedAt, deviceId, petId],
+          function (updateErr) {
+            if (updateErr) {
+              reject(updateErr);
+            } else {
+              db.query(selectQuery, [deviceId], function (selectErr, result) {
+                if (selectErr) {
+                  reject(selectErr);
+                } else {
+                  resolve(result[0]);
+                }
+              });
+            }
+          },
+        );
       }
     });
   });
@@ -645,7 +720,7 @@ var getNearbyPets = function (filters) {
     longitude,
     radius,
     page,
-    limit
+    limit,
   } = filters;
 
   const offset = (page - 1) * limit;
@@ -722,41 +797,15 @@ var getNearbyPets = function (filters) {
   `;
 
   return new Promise((resolve, reject) => {
-    db.query(countQuery, params.slice(0, params.length - (latitude && longitude ? 4 : 0)), function (err, countResult) {
-      if (err) return reject(err);
+    db.query(dataQuery, [...params, limit, offset], function (err, result) {
+  if (err) return reject(err);
 
-      const total = countResult[0].total;
+  const pets = result.map(formatPetResponse);
 
-      db.query(
-        dataQuery,
-        [...params, limit, offset],
-        function (err, result) {
-          if (err) return reject(err);
-
-          const pets = result.map(pet => {
-            if (pet.images) {
-              pet.images = pet.images.split("|||").map(img => {
-                const parts = img.split(":::");
-                return {
-                  image_id: parseInt(parts[0]),
-                  image_url: parts[1],
-                  image_type: parts[2],
-                  sort_order: parseInt(parts[3])
-                };
-              });
-            } else {
-              pet.images = [];
-            }
-            return pet;
-          });
-
-          resolve({ total, pets });
-        }
-      );
-    });
+  resolve({  pets });
+});
   });
 };
-
 
 module.exports = {
   createPet: createPet,
@@ -771,6 +820,5 @@ module.exports = {
   reassignPetDevice: reassignPetDevice,
   getNearbyPets: getNearbyPets,
   updatePetTags: updatePetTags,
-  getPetBySlug:getPetBySlug
+  getPetBySlug: getPetBySlug,
 };
-
