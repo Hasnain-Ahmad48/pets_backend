@@ -534,3 +534,30 @@ exports.getPetListingByPetId = async function (req, res) {
     });
   }
 };
+
+exports.getAllListPet = async function (req, res) {
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = 20;
+
+    const result = await petModel.getAllListPet(page, limit);
+
+    res.status(200).json({
+      success: true,
+      message: "Listed pets fetched successfully",
+      page,
+      limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
+      data: result.listings,
+    });
+  } catch (error) {
+    console.error("Get all listed pets error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};

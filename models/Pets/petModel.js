@@ -914,6 +914,92 @@ var getPetListingByPetId = function (petId) {
   });
 };
 
+var getAllListPet = function (page = 1, limit = 20) {
+  const offset = (page - 1) * limit;
+
+  const countQuery = `
+    SELECT COUNT(*) AS total
+    FROM pet_listing pl
+    WHERE pl.status = 'active'
+  `;
+
+  const dataQuery = `
+    SELECT
+      pl.listing_id,
+      pl.type,
+      pl.price,
+      pl.description,
+      pl.status,
+      pl.created_at AS listing_created_at,
+
+      p.pet_id,
+      p.pet_name,
+      p.slug,
+      p.gender,
+      p.color,
+
+      b.title AS breed,
+      c.name AS country,
+
+      GROUP_CONCAT(
+        DISTINCT CONCAT(
+          pi.image_id, ':::',
+          pi.image_url, ':::',
+          IFNULL(pi.image_type, 'gallery'), ':::',
+          IFNULL(pi.sort_order, 0)
+        )
+        ORDER BY pi.sort_order
+        SEPARATOR '|||'
+      ) AS images
+
+    FROM pet_listing pl
+    INNER JOIN pets p ON pl.pet_id = p.pet_id
+    LEFT JOIN breeds b ON p.breed_id = b.id
+    LEFT JOIN countries c ON p.country_id = c.id
+    LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+
+    WHERE pl.status = 'active'
+      AND p.is_deleted = 0
+
+    GROUP BY pl.listing_id
+    ORDER BY pl.created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(countQuery, function (countErr, countResult) {
+      if (countErr) return reject(countErr);
+
+      const total = countResult[0].total;
+
+      db.query(dataQuery, [limit, offset], function (err, result) {
+        if (err) return reject(err);
+
+        const listings = result.map((item) => ({
+          ...item,
+          images: item.images
+            ? item.images.split("|||").map((imgStr) => {
+                const parts = imgStr.split(":::");
+                return {
+                  image_id: parseInt(parts[0]),
+                  image_url: parts[1],
+                  image_type: parts[2],
+                  sort_order: parseInt(parts[3]),
+                };
+              })
+            : [],
+        }));
+
+        resolve({
+          total,
+          listings,
+        });
+      });
+    });
+  });
+};
+
+
 module.exports = {
   createPet: createPet,
   createPetImages: createPetImages,
@@ -930,4 +1016,5 @@ module.exports = {
   getPetBySlug: getPetBySlug,
   addListingPet: addListingPet,
 getPetListingByPetId: getPetListingByPetId,
+getAllListPet: getAllListPet,
 };
