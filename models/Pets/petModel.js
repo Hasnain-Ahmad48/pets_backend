@@ -807,6 +807,113 @@ var getNearbyPets = function (filters) {
   });
 };
 
+var addListingPet = function (listingData) {
+  const checkQuery = `
+    SELECT listing_id
+    FROM pet_listing
+    WHERE pet_id = ?
+    LIMIT 1
+  `;
+
+  const insertQuery = `
+    INSERT INTO pet_listing (
+      pet_id,
+      type,
+      price,
+      description,
+      status
+    ) VALUES (?, ?, ?, ?, 'active')
+  `;
+
+  const updateQuery = `
+    UPDATE pet_listing
+    SET
+      type = ?,
+      price = ?,
+      description = ?,
+      status = 'active',
+      updated_at = CURRENT_TIMESTAMP
+    WHERE listing_id = ?
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(checkQuery, [listingData.pet_id], function (checkErr, rows) {
+      if (checkErr) return reject(checkErr);
+
+      // ✅ UPDATE existing listing
+      if (rows.length > 0) {
+        const listingId = rows[0].listing_id;
+
+        db.query(
+          updateQuery,
+          [
+            listingData.type,
+            listingData.price,
+            listingData.description,
+            listingId,
+          ],
+          function (updateErr) {
+            if (updateErr) return reject(updateErr);
+
+            db.query(
+              "SELECT * FROM pet_listing WHERE listing_id = ?",
+              [listingId],
+              function (selectErr, result) {
+                if (selectErr) return reject(selectErr);
+                resolve(result[0]);
+              }
+            );
+          }
+        );
+      }
+
+      // ✅ INSERT new listing
+      else {
+        db.query(
+          insertQuery,
+          [
+            listingData.pet_id,
+            listingData.type,
+            listingData.price,
+            listingData.description,
+          ],
+          function (insertErr, result) {
+            if (insertErr) return reject(insertErr);
+
+            db.query(
+              "SELECT * FROM pet_listing WHERE listing_id = ?",
+              [result.insertId],
+              function (selectErr, rows) {
+                if (selectErr) return reject(selectErr);
+                resolve(rows[0]);
+              }
+            );
+          }
+        );
+      }
+    });
+  });
+};
+
+//get listing pets by id
+var getPetListingByPetId = function (petId) {
+  const query = `
+    SELECT *
+    FROM pet_listing
+    WHERE pet_id = ?
+   
+    ORDER BY created_at DESC
+    
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [petId], function (err, result) {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+};
+
 module.exports = {
   createPet: createPet,
   createPetImages: createPetImages,
@@ -821,4 +928,6 @@ module.exports = {
   getNearbyPets: getNearbyPets,
   updatePetTags: updatePetTags,
   getPetBySlug: getPetBySlug,
+  addListingPet: addListingPet,
+getPetListingByPetId: getPetListingByPetId,
 };

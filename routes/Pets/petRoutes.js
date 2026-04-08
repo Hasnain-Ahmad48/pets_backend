@@ -70,6 +70,18 @@ router.get(
   petController.getNearbyPets
 );
 
+//listing routes
+router.post(
+  "/addListingPet",
+  middleware.verifyAccessToken,
+  petController.addListingPet
+);
+
+router.get(
+  "/getPetListing/:petId",
+  petController.getPetListingByPetId
+);
+
 
 module.exports = router;
 

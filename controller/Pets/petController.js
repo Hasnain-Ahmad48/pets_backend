@@ -450,3 +450,87 @@ exports.getNearbyPets = async function (req, res) {
   }
 };
 
+exports.addListingPet = async function (req, res) {
+  try {
+    const userId = req.user.id;
+    const { pet_id, type, price, description } = req.body;
+
+    // required validation
+    if (!pet_id || !type) {
+      return res.status(400).json({
+        success: false,
+        message: "pet_id and type are required",
+      });
+    }
+
+    // validate enum values
+    const allowedTypes = ["lost", "sale", "adoption"];
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid listing type",
+      });
+    }
+
+    // price required only for sale
+    if (type === "sale" && (!price || Number(price) <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Price is required for sale listing",
+      });
+    }
+
+    // verify pet belongs to logged-in user
+    const pet = await petModel.getPetById(parseInt(pet_id), userId);
+    if (!pet) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found or access denied",
+      });
+    }
+
+    const listingData = {
+      pet_id: parseInt(pet_id),
+      type,
+      price: type === "sale" ? parseFloat(price) : null,
+      description: description || null,
+    };
+
+    const listing = await petModel.addListingPet(listingData);
+
+    res.status(201).json({
+      success: true,
+      message: "Pet listed successfully",
+      data: listing,
+    });
+  } catch (error) {
+    console.error("Add pet listing error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+exports.getPetListingByPetId = async function (req, res) {
+  try {
+    const petId = parseInt(req.params.petId);
+
+    const listing = await petModel.getPetListingByPetId(petId);
+
+    res.status(200).json({
+      success: true,
+      message: "Pet listing fetched successfully",
+      data: listing,
+    });
+  } catch (error) {
+    console.error("Get pet listing error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
