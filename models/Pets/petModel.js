@@ -905,16 +905,7 @@ var getPetListingByPetId = function (petId) {
     ORDER BY created_at DESC
     
   `;
-
-  return new Promise((resolve, reject) => {
-    db.query(query, [petId], function (err, result) {
-      if (err) return reject(err);
-      resolve(result);
-    });
-  });
-};
-
-var getAllListPet = function (page = 1, limit = 20) {
+  var getAllListPet = function (page = 1, limit = 20) {
   const offset = (page - 1) * limit;
 
   const countQuery = `
@@ -998,6 +989,16 @@ var getAllListPet = function (page = 1, limit = 20) {
     });
   });
 };
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [petId], function (err, result) {
+      if (err) return reject(err);
+      resolve(result);
+    });
+  });
+};
+
+
 
 
 module.exports = {
