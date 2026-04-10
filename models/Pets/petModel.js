@@ -198,6 +198,7 @@ var getPetBySlug = function (slug) {
       p.*,
       b.title AS breed,
       c.name AS country,
+      ct.title AS category,
 
       GROUP_CONCAT(
         DISTINCT CONCAT(
@@ -224,6 +225,7 @@ var getPetBySlug = function (slug) {
     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
     LEFT JOIN tags t ON pt.tag_id = t.id
     LEFT JOIN breeds b ON p.breed_id = b.id
+     LEFT JOIN breedcategory ct ON p.category_id = ct.id
     LEFT JOIN countries c ON p.country_id = c.id
     WHERE p.slug = ? AND p.is_deleted = 0
     GROUP BY p.pet_id
@@ -863,6 +865,7 @@ var getNearbyPets = function (filters) {
       p.*,
       b.title AS breed,
       c.name AS country,
+      ct.title AS category,
 
       GROUP_CONCAT(
         DISTINCT CONCAT(
@@ -889,6 +892,7 @@ var getNearbyPets = function (filters) {
     LEFT JOIN tags t ON pt.tag_id = t.id
     LEFT JOIN breeds b ON p.breed_id = b.id
     LEFT JOIN countries c ON p.country_id = c.id
+      LEFT JOIN breedcategory ct ON p.category_id = ct.id
 
     WHERE ${whereConditions}
     GROUP BY p.pet_id
@@ -1033,6 +1037,9 @@ var getPetListingByPetId = function (petId) {
       p.pet_name,
       p.slug,
       p.gender,
+      p.category_id,
+p.breed_id,
+p.country_id,
       p.address,
       p.latitude,
       p.longitude,
@@ -1052,6 +1059,7 @@ var getPetListingByPetId = function (petId) {
 
       b.title AS breed,
       c.name AS country,
+        ct.title AS category,
 
       GROUP_CONCAT(
         DISTINCT CONCAT(
@@ -1079,7 +1087,7 @@ var getPetListingByPetId = function (petId) {
     LEFT JOIN tags t ON pt.tag_id = t.id
     LEFT JOIN breeds b ON p.breed_id = b.id
     LEFT JOIN countries c ON p.country_id = c.id
-
+      LEFT JOIN breedcategory ct ON p.category_id = ct.id
     WHERE pl.pet_id = ?
       AND p.is_deleted = 0
       AND p.is_active = 1
