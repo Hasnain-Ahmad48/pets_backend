@@ -36,10 +36,11 @@ exports.addPet = async function (req, res) {
     if (!pet_name || !category_id || !breed_id || !country_id) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: pet_name, category_id, breed_id, country_id",
+        message:
+          "Missing required fields: pet_name, category_id, breed_id, country_id",
       });
     }
-const slug = slugify(pet_name, { lower: true, strict: true }); // converts to lowercase and removes special chars
+    const slug = slugify(pet_name, {lower: true, strict: true}); // converts to lowercase and removes special chars
     // Prepare pet data
     const petData = {
       user_id: userId,
@@ -60,15 +61,22 @@ const slug = slugify(pet_name, { lower: true, strict: true }); // converts to lo
       microchip_id: microchip_id || null,
       temperament: temperament || null,
       activity_level: activity_level || null,
-      adopted: adopted !== undefined ? (adopted === "true" || adopted === true) : true,
+      adopted:
+        adopted !== undefined ? adopted === "true" || adopted === true : true,
       adoption_date: adoption_date || null,
       adoption_source: adoption_source || null,
-      is_active: is_active !== undefined ? (is_active === "true" || is_active === true) : true,
-      is_visible_nearby: is_visible_nearby !== undefined ? (is_visible_nearby === "true" || is_visible_nearby === true) : true,
+      is_active:
+        is_active !== undefined
+          ? is_active === "true" || is_active === true
+          : true,
+      is_visible_nearby:
+        is_visible_nearby !== undefined
+          ? is_visible_nearby === "true" || is_visible_nearby === true
+          : true,
     };
 
     // Create pet
-    const pet = await petModel.createPet(petData,tags);
+    const pet = await petModel.createPet(petData, tags);
     const petId = pet.pet_id;
 
     // Handle images
@@ -153,8 +161,6 @@ exports.updatePet = async function (req, res) {
       });
     }
 
-
-
     // Prepare update data
     const updates = {};
     const allowedFields = [
@@ -181,14 +187,25 @@ exports.updatePet = async function (req, res) {
       "is_visible_nearby",
     ];
 
-    allowedFields.forEach((field) => {
+    allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        if (field === "category_id" || field === "breed_id" || field === "country_id") {
+        if (
+          field === "category_id" ||
+          field === "breed_id" ||
+          field === "country_id"
+        ) {
           updates[field] = parseInt(req.body[field]);
         } else if (field === "latitude" || field === "longitude") {
           updates[field] = req.body[field] ? parseFloat(req.body[field]) : null;
-        } else if (field === "neutered" || field === "microchipped" || field === "adopted" || field === "is_active" || field === "is_visible_nearby") {
-          updates[field] = req.body[field] === "true" || req.body[field] === true;
+        } else if (
+          field === "neutered" ||
+          field === "microchipped" ||
+          field === "adopted" ||
+          field === "is_active" ||
+          field === "is_visible_nearby"
+        ) {
+          updates[field] =
+            req.body[field] === "true" || req.body[field] === true;
         } else {
           updates[field] = req.body[field];
         }
@@ -200,7 +217,11 @@ exports.updatePet = async function (req, res) {
       const imageData = req.files.map((file, index) => ({
         image_url: "user_pets/" + file.filename,
         image_type: req.body.image_type || "gallery",
-        sort_order: req.body.sort_order ? parseInt(req.body.sort_order) + index : existingPet.images ? existingPet.images.length + index : index,
+        sort_order: req.body.sort_order
+          ? parseInt(req.body.sort_order) + index
+          : existingPet.images
+            ? existingPet.images.length + index
+            : index,
       }));
 
       await petModel.createPetImages(petId, imageData);
@@ -214,11 +235,17 @@ exports.updatePet = async function (req, res) {
 
       for (const imageId of imageIds) {
         try {
-          const image = existingPet.images.find((img) => img.image_id === parseInt(imageId));
+          const image = existingPet.images.find(
+            img => img.image_id === parseInt(imageId),
+          );
           if (image) {
             // Delete file from filesystem
-            const imagePath = path.join(__dirname, "../../public/", image.image_url);
-            fs.unlink(imagePath, (err) => {
+            const imagePath = path.join(
+              __dirname,
+              "../../public/",
+              image.image_url,
+            );
+            fs.unlink(imagePath, err => {
               if (err && err.code !== "ENOENT") {
                 console.error("Error deleting image file:", err);
               }
@@ -258,7 +285,7 @@ exports.updatePet = async function (req, res) {
 exports.addPetDevice = async function (req, res) {
   try {
     const userId = req.user.id; // From JWT middleware
-    const { pet_id, device_id } = req.body;
+    const {pet_id, device_id} = req.body;
 
     if (!pet_id || !device_id) {
       return res.status(400).json({
@@ -270,7 +297,7 @@ exports.addPetDevice = async function (req, res) {
     const petDevice = await petModel.addPetDevice(
       parseInt(pet_id),
       parseInt(device_id),
-      userId
+      userId,
     );
 
     res.status(201).json({
@@ -357,7 +384,7 @@ exports.updatePetDevice = async function (req, res) {
   try {
     const userId = req.user.id; // From JWT middleware
     const deviceId = parseInt(req.params.id);
-    const { pet_id, unassigned_at, reassign } = req.body;
+    const {pet_id, unassigned_at, reassign} = req.body;
 
     if (!pet_id) {
       return res.status(400).json({
@@ -372,7 +399,7 @@ exports.updatePetDevice = async function (req, res) {
       updatedDevice = await petModel.reassignPetDevice(
         deviceId,
         parseInt(pet_id),
-        userId
+        userId,
       );
     } else {
       // Unassign device
@@ -383,7 +410,7 @@ exports.updatePetDevice = async function (req, res) {
         deviceId,
         parseInt(pet_id),
         userId,
-        updates
+        updates,
       );
     }
 
@@ -401,7 +428,7 @@ exports.updatePetDevice = async function (req, res) {
     });
   }
 };
- 
+
 // Get nearby pets with optional filters
 exports.getNearbyPets = async function (req, res) {
   try {
@@ -414,7 +441,7 @@ exports.getNearbyPets = async function (req, res) {
       longitude,
       radius,
       page,
-      limit
+      limit,
     } = req.query;
 
     const filters = {
@@ -424,9 +451,9 @@ exports.getNearbyPets = async function (req, res) {
       gender: gender || null,
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
-      radius: radius ? parseFloat(radius) : 10, 
+      radius: radius ? parseFloat(radius) : 10,
       page: page ? parseInt(page) : 1,
-      limit: limit ? parseInt(limit) : 10
+      limit: limit ? parseInt(limit) : 10,
     };
 
     const result = await petModel.getNearbyPets(filters);
@@ -437,23 +464,23 @@ exports.getNearbyPets = async function (req, res) {
       page: filters.page,
       limit: filters.limit,
       totalPets: result.total,
-      data: result.pets
+      data: result.pets,
     });
-
   } catch (error) {
     console.error("Get nearby pets error:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
+//below is adding lists pet function
 exports.addListingPet = async function (req, res) {
   try {
     const userId = req.user.id;
-    const { pet_id, type, price, description } = req.body;
+    const {pet_id, type, price, description} = req.body;
 
     // required validation
     if (!pet_id || !type) {
@@ -492,7 +519,10 @@ exports.addListingPet = async function (req, res) {
     const listingData = {
       pet_id: parseInt(pet_id),
       type,
-      price: type === "sale" ? parseFloat(price) : null,
+      price:
+        price !== undefined && price !== null && price !== ""
+          ? parseFloat(price)
+          : null,
       description: description || null,
     };
 
