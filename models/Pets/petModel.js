@@ -1,3 +1,4 @@
+const { promises } = require("nodemailer/lib/xoauth2/index.js");
 var db = require("../../config/DatabaseConnection.js");
 
 var formatPetResponse = function (pet) {
@@ -476,6 +477,25 @@ var updatePet = function (petId, userId, updates) {
   });
 };
 
+// Soft delete pet by id
+var deletePetById = function (petId, userId) {
+  const query = `
+    UPDATE pets
+    SET is_deleted = 1
+    WHERE pet_id = ? AND user_id = ? AND is_deleted = 0
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [petId, userId], function (err, result) {
+      if (err) return reject(err);
+
+      resolve({
+        affectedRows: result.affectedRows,
+      });
+    });
+  });
+};
+
 // Update pet tags
 var updatePetTags = function (petId, tags = "") {
   return new Promise(async (resolve, reject) => {
@@ -816,7 +836,6 @@ var reassignPetDevice = function (deviceId, petId, userId) {
 // });
 //   });
 // };
-
 var getNearbyPets = function (filters) {
   const {
     gender,
@@ -932,7 +951,6 @@ var getNearbyPets = function (filters) {
 };
 
 //adding listing pets
-
 var addListingPet = function (listingData) {
   const checkQuery = `
     SELECT listing_id
@@ -1021,25 +1039,65 @@ var addListingPet = function (listingData) {
   });
 };
 
-//get listing pets by id
-var getPetListingByPetId = function (petId) {
-  const query = `
-    SELECT 
+//get listing pets 
+var getPetListings = function (filters = {}, page = 1, limit = 20) {
+  const offset = (page - 1) * limit;
+
+  let whereConditions = `
+    WHERE pl.status = 'active'
+      AND p.is_deleted = 0
+      AND p.is_active = 1
+      AND p.is_visible_nearby = 1
+  `;
+
+  let queryParams = [];
+  let countParams = [];
+
+  // Filter by pet_id
+  if (filters.pet_id) {
+    whereConditions += ` AND p.pet_id = ?`;
+    queryParams.push(filters.pet_id);
+    countParams.push(filters.pet_id);
+  }
+
+  // Filter by type
+  if (filters.type) {
+    whereConditions += ` AND pl.type = ?`;
+    queryParams.push(filters.type);
+    countParams.push(filters.type);
+  }
+
+  // Filter by slug
+  if (filters.slug) {
+    whereConditions += ` AND p.slug = ?`;
+    queryParams.push(filters.slug);
+    countParams.push(filters.slug);
+  }
+
+  const countQuery = `
+    SELECT COUNT(DISTINCT pl.listing_id) AS total
+    FROM pet_listing pl
+    INNER JOIN pets p ON pl.pet_id = p.pet_id
+    ${whereConditions}
+  `;
+
+  const dataQuery = `
+    SELECT
       pl.listing_id,
       pl.type,
       pl.price,
       pl.description,
       pl.status,
-      pl.created_at,
+      pl.created_at AS listing_created_at,
       pl.updated_at,
 
       p.pet_id,
       p.pet_name,
       p.slug,
-      p.gender,
       p.category_id,
-p.breed_id,
-p.country_id,
+      p.breed_id,
+      p.country_id,
+      p.gender,
       p.address,
       p.latitude,
       p.longitude,
@@ -1059,7 +1117,7 @@ p.country_id,
 
       b.title AS breed,
       c.name AS country,
-        ct.title AS category,
+      ct.title AS category,
 
       GROUP_CONCAT(
         DISTINCT CONCAT(
@@ -1082,81 +1140,14 @@ p.country_id,
 
     FROM pet_listing pl
     INNER JOIN pets p ON pl.pet_id = p.pet_id
+    LEFT JOIN breeds b ON p.breed_id = b.id
+    LEFT JOIN countries c ON p.country_id = c.id
+    LEFT JOIN breedcategory ct ON p.category_id = ct.id
     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
     LEFT JOIN tags t ON pt.tag_id = t.id
-    LEFT JOIN breeds b ON p.breed_id = b.id
-    LEFT JOIN countries c ON p.country_id = c.id
-      LEFT JOIN breedcategory ct ON p.category_id = ct.id
-    WHERE pl.pet_id = ?
-      AND p.is_deleted = 0
-      AND p.is_active = 1
-      AND p.is_visible_nearby = 1
-      AND pl.status = 'active'
 
-    GROUP BY pl.listing_id
-    ORDER BY pl.created_at DESC
-  `;
-
-  return new Promise((resolve, reject) => {
-    db.query(query, [petId], function (err, result) {
-      if (err) return reject(err);
-
-      const listings = result.map(formatPetResponse);
-
-      resolve(listings);
-    });
-  });
-};
-
-var getAllListPet = function (page = 1, limit = 20) {
-  const offset = (page - 1) * limit;
-
-  const countQuery = `
-    SELECT COUNT(*) AS total
-    FROM pet_listing pl
-    WHERE pl.status = 'active'
-  `;
-
-  const dataQuery = `
-    SELECT
-      pl.listing_id,
-      pl.type,
-      pl.price,
-      pl.description,
-      pl.status,
-      pl.created_at AS listing_created_at,
-
-      p.pet_id,
-      p.pet_name,
-      p.slug,
-      p.gender,
-      p.color,
-     
-
-      b.title AS breed,
-      c.name AS country,
-
-      GROUP_CONCAT(
-        DISTINCT CONCAT(
-          pi.image_id, ':::',
-          pi.image_url, ':::',
-          IFNULL(pi.image_type, 'gallery'), ':::',
-          IFNULL(pi.sort_order, 0)
-        )
-        ORDER BY pi.sort_order
-        SEPARATOR '|||'
-      ) AS images
-
-    FROM pet_listing pl
-    INNER JOIN pets p ON pl.pet_id = p.pet_id
-    LEFT JOIN breeds b ON p.breed_id = b.id
-    LEFT JOIN countries c ON p.country_id = c.id
-    LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
-    
-
-    WHERE pl.status = 'active'
-      AND p.is_deleted = 0
+    ${whereConditions}
 
     GROUP BY pl.listing_id
     ORDER BY pl.created_at DESC
@@ -1164,33 +1155,117 @@ var getAllListPet = function (page = 1, limit = 20) {
   `;
 
   return new Promise((resolve, reject) => {
-    db.query(countQuery, function (countErr, countResult) {
+    db.query(countQuery, countParams, function (countErr, countResult) {
       if (countErr) return reject(countErr);
 
       const total = countResult[0].total;
 
-      db.query(dataQuery, [limit, offset], function (err, result) {
-        if (err) return reject(err);
+      db.query(
+        dataQuery,
+        [...queryParams, limit, offset],
+        function (err, result) {
+          if (err) return reject(err);
 
-        const listings = result.map((item) => ({
-          ...item,
-          images: item.images
-            ? item.images.split("|||").map((imgStr) => {
-                const parts = imgStr.split(":::");
-                return {
-                  image_id: parseInt(parts[0]),
-                  image_url: parts[1],
-                  image_type: parts[2],
-                  sort_order: parseInt(parts[3]),
-                };
-              })
-            : [],
-        }));
+          const listings = result.map(formatPetResponse);
 
-        resolve({
-          total,
-          listings,
-        });
+          resolve({
+            total,
+            listings,
+          });
+        }
+      );
+    });
+  });
+};
+
+// Update pet listing by listing_id
+var updateListingPet = function (listingId, userId, updates) {
+  const verifyQuery = `
+    SELECT pl.listing_id
+    FROM pet_listing pl
+    INNER JOIN pets p ON pl.pet_id = p.pet_id
+    WHERE pl.listing_id = ?
+      AND p.user_id = ?
+      AND pl.status != 'deleted'
+      AND p.is_deleted = 0
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(verifyQuery, [listingId, userId], function (verifyErr, rows) {
+      if (verifyErr) return reject(verifyErr);
+
+      if (rows.length === 0) {
+        return resolve(null);
+      }
+
+      const fields = [];
+      const values = [];
+
+      if (updates.type !== undefined) {
+        fields.push("type = ?");
+        values.push(updates.type);
+      }
+
+      if (updates.price !== undefined) {
+        fields.push("price = ?");
+        values.push(updates.price);
+      }
+
+      if (updates.description !== undefined) {
+        fields.push("description = ?");
+        values.push(updates.description);
+      }
+
+      if (fields.length === 0) {
+        return reject(new Error("No valid fields to update"));
+      }
+
+      fields.push("updated_at = CURRENT_TIMESTAMP");
+
+      const updateQuery = `
+        UPDATE pet_listing
+        SET ${fields.join(", ")}
+        WHERE listing_id = ?
+      `;
+
+      values.push(listingId);
+
+      db.query(updateQuery, values, function (updateErr) {
+        if (updateErr) return reject(updateErr);
+
+        db.query(
+          "SELECT * FROM pet_listing WHERE listing_id = ?",
+          [listingId],
+          function (selectErr, result) {
+            if (selectErr) return reject(selectErr);
+
+            resolve(result[0]);
+          }
+        );
+      });
+    });
+  });
+};
+
+// Soft delete pet listing
+var deleteListingPet = function (listingId, userId) {
+  const query = `
+    UPDATE pet_listing pl
+    INNER JOIN pets p ON pl.pet_id = p.pet_id
+    SET pl.status = 'deleted',
+        pl.updated_at = CURRENT_TIMESTAMP
+    WHERE pl.listing_id = ?
+      AND p.user_id = ?
+      AND pl.status != 'deleted'
+      AND p.is_deleted = 0
+  `;
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [listingId, userId], function (err, result) {
+      if (err) return reject(err);
+
+      resolve({
+        affectedRows: result.affectedRows,
       });
     });
   });
@@ -1202,6 +1277,7 @@ module.exports = {
   getUserPets: getUserPets,
   getPetById: getPetById,
   updatePet: updatePet,
+  deletePetById: deletePetById,
   deletePetImage: deletePetImage,
   addPetDevice: addPetDevice,
   getPetDevices: getPetDevices,
@@ -1211,6 +1287,7 @@ module.exports = {
   updatePetTags: updatePetTags,
   getPetBySlug: getPetBySlug,
   addListingPet: addListingPet,
-getPetListingByPetId: getPetListingByPetId,
-getAllListPet: getAllListPet,
+  getPetListings: getPetListings,
+  updateListingPet: updateListingPet,
+  deleteListingPet: deleteListingPet,
 };

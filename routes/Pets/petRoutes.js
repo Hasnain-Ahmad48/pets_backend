@@ -16,20 +16,17 @@ var storage = multer.diskStorage({
 
 var upload = multer({storage: storage});
 
-// Add pet with multiple images (auth required)
 router.post(
-  "/addPet",
-  middleware.verifyAccessToken,
-  upload.array("images", 10), // Allow up to 10 images
+  "/addpet",
+  middleware.validateToken,
+  upload.array("images"),
   petController.addPet,
 );
 
 // Get user pets (auth required)
-router.get(
-  "/getUserPets",
-  middleware.verifyAccessToken,
-  petController.getUserPets,
-);
+router.get("/getUserPets", middleware.validateToken, petController.getUserPets);
+
+router.get("/getpetbyslug/:slug", petController.getPetBySlug);
 
 // Update pet (auth required)
 router.patch(
@@ -38,6 +35,13 @@ router.patch(
   upload.array("images", 10), // Allow up to 10 images
   petController.updatePet,
 );
+
+//delete pet
+router.delete("/deletePet/:petId",
+   middleware.validateToken,
+   petController.deletePet);
+
+
 
 // Add pet device (auth required)
 router.post(
@@ -71,11 +75,21 @@ router.get(
 router.post(
   "/addListingPet",
   middleware.verifyAccessToken,
-  petController.addListingPet,
+  petController.addListingPet
 );
 
-router.get("/getPetListing/:petId", petController.getPetListingByPetId);
+router.get("/pet-listings", petController.getPetListings);
 
-router.get("/getAllListPet", petController.getAllListPet);
+router.put(
+  "/updateListingPet/:listingId",
+  middleware.validateToken,
+  petController.updateListingPet
+);
+
+router.delete(
+  "/deleteListingPet/:listingId",
+  middleware.validateToken,
+  petController.deleteListingPet
+);
 
 module.exports = router;
