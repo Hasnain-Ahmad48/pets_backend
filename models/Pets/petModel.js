@@ -1043,37 +1043,34 @@ var addListingPet = function (listingData) {
 var getPetListings = function (filters = {}, page = 1, limit = 20) {
   const offset = (page - 1) * limit;
 
-  let whereConditions = `
-    WHERE pl.status = 'active'
-      AND p.is_deleted = 0
-      AND p.is_active = 1
-      AND p.is_visible_nearby = 1
-  `;
-
+  let whereConditions = ` WHERE 1=1 `;
   let queryParams = [];
   let countParams = [];
 
-  // Filter by pet_id
+  // ==================================================
+  // APPLY FILTERS ONLY WHEN USER SENDS THEM
+  // ==================================================
   if (filters.pet_id) {
     whereConditions += ` AND p.pet_id = ?`;
     queryParams.push(filters.pet_id);
     countParams.push(filters.pet_id);
   }
 
-  // Filter by type
   if (filters.type) {
     whereConditions += ` AND pl.type = ?`;
     queryParams.push(filters.type);
     countParams.push(filters.type);
   }
 
-  // Filter by slug
   if (filters.slug) {
     whereConditions += ` AND p.slug = ?`;
     queryParams.push(filters.slug);
     countParams.push(filters.slug);
   }
 
+  // ==================================================
+  // COUNT QUERY
+  // ==================================================
   const countQuery = `
     SELECT COUNT(DISTINCT pl.listing_id) AS total
     FROM pet_listing pl
@@ -1081,13 +1078,16 @@ var getPetListings = function (filters = {}, page = 1, limit = 20) {
     ${whereConditions}
   `;
 
+  // ==================================================
+  // DATA QUERY
+  // ==================================================
   const dataQuery = `
     SELECT
       pl.listing_id,
       pl.type,
       pl.price,
       pl.description,
-      pl.status,
+      pl.status AS listing_status,
       pl.created_at AS listing_created_at,
       pl.updated_at,
 
@@ -1114,6 +1114,13 @@ var getPetListings = function (filters = {}, page = 1, limit = 20) {
       p.adoption_source,
       p.is_active,
       p.is_visible_nearby,
+      p.is_deleted,
+
+      CASE
+        WHEN p.is_deleted = 1 THEN 'deleted'
+        WHEN p.adopted = 1 THEN 'adopted'
+        ELSE pl.type
+      END AS current_status,
 
       b.title AS breed,
       c.name AS country,
@@ -1166,11 +1173,26 @@ var getPetListings = function (filters = {}, page = 1, limit = 20) {
         function (err, result) {
           if (err) return reject(err);
 
+          // ==========================================
+          // ONLY CHECK NOT FOUND WHEN FILTERS EXIST
+          // ==========================================
+          const hasFilters =
+            filters.pet_id || filters.type || filters.slug;
+
+          if (hasFilters && result.length === 0) {
+            return resolve({
+              total: 0,
+              listings: [],
+              notFound: true,
+            });
+          }
+
           const listings = result.map(formatPetResponse);
 
           resolve({
             total,
             listings,
+            notFound: false,
           });
         }
       );

@@ -573,6 +573,14 @@ exports.getPetListings = async function (req, res) {
       limit
     );
 
+    // only return 404 if filters applied and nothing found
+    if (result.notFound) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet listing not found",
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: "Pet listings fetched successfully",
