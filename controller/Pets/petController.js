@@ -101,16 +101,30 @@ const slug = slugify(pet_name, { lower: true, strict: true }); // converts to lo
   }
 };
 
-// Get user pets
-exports.getUserPets = async function (req, res) {
+//get pet by filters
+exports.getPets = async function (req, res) {
   try {
-    const userId = req.user.id; // From JWT middleware
+    const userId = req.user?.id || null;
 
-    // pagination params
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
-    const result = await petModel.getUserPets(userId, page, limit);
+    const filters = {
+      user_id: userId, // remove this if you want all system pets
+      pet_id: req.query.pet_id
+        ? parseInt(req.query.pet_id)
+        : null,
+      slug: req.query.slug || null,
+    };
+
+    const result = await petModel.getPets(filters, page, limit);
+
+    if (result.notFound) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found",
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -122,7 +136,8 @@ exports.getUserPets = async function (req, res) {
       data: result.pets,
     });
   } catch (error) {
-    console.error("Get user pets error:", error);
+    console.error("Get pets error:", error);
+
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -131,7 +146,73 @@ exports.getUserPets = async function (req, res) {
   }
 };
 
+// Get user pets
+// exports.getUserPets = async function (req, res) {
+//   try {
+//     const userId = req.user.id; // From JWT middleware
+
+//     // pagination params
+//     const page = Math.max(parseInt(req.query.page) || 1, 1);
+//     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+//     const result = await petModel.getUserPets(userId, page, limit);
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Pets fetched successfully",
+//       page,
+//       limit,
+//       total: result.total,
+//       totalPages: Math.ceil(result.total / limit),
+//       data: result.pets,
+//     });
+//   } catch (error) {
+//     console.error("Get user pets error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// Get pet by slug
+// exports.getPetBySlug = async function (req, res) {
+//   try {
+//     const slug = req.params.slug;
+//     if (!slug) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Slug is required",
+//       });
+//     }
+
+//     const pet = await petModel.getPetBySlug(slug);
+//     if (!pet) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Pet not found",
+//       });
+//     }
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Pet fetched successfully",
+//       data: pet,
+//     });
+//   } catch (error) {
+//     console.error("Get pet by slug error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//       error: error.message,
+//     });
+//   }
+// };
+
 // Update pet
+
+
 exports.updatePet = async function (req, res) {
   try {
     const userId = req.user.id; // From JWT middleware
@@ -324,39 +405,7 @@ exports.addPetDevice = async function (req, res) {
   }
 };
 
-// Get pet by slug
-exports.getPetBySlug = async function (req, res) {
-  try {
-    const slug = req.params.slug;
-    if (!slug) {
-      return res.status(400).json({
-        success: false,
-        message: "Slug is required",
-      });
-    }
 
-    const pet = await petModel.getPetBySlug(slug);
-    if (!pet) {
-      return res.status(404).json({
-        success: false,
-        message: "Pet not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Pet fetched successfully",
-      data: pet,
-    });
-  } catch (error) {
-    console.error("Get pet by slug error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      error: error.message,
-    });
-  }
-};
 
 // Get pet devices
 exports.getPetDevices = async function (req, res) {
@@ -485,7 +534,6 @@ exports.getNearbyPets = async function (req, res) {
     });
   }
 };
-
 
 //below is adding lists pet function
 exports.addListingPet = async function (req, res) {
@@ -697,3 +745,5 @@ exports.deleteListingPet = async function (req, res) {
     });
   }
 };
+
+

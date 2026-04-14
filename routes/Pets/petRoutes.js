@@ -24,9 +24,7 @@ router.post(
 );
 
 // Get user pets (auth required)
-router.get("/getUserPets", middleware.validateToken, petController.getUserPets);
-
-router.get("/getpetbyslug/:slug", petController.getPetBySlug);
+router.get("/getpets", petController.getPets);
 
 // Update pet (auth required)
 router.patch(

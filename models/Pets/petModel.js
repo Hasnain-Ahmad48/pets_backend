@@ -81,7 +81,7 @@ var createPet = async function (petData, tags = "") {
       db.query(
         insertQuery,
         [
-          
+          petData.user_id,
           petData.pet_name,
           petData.slug,
           petData.category_id,
@@ -192,9 +192,41 @@ var createPet = async function (petData, tags = "") {
   });
 };
 
-// Get pet by slug
-var getPetBySlug = function (slug) {
-  var query = `
+var getPets = function (filters = {}, page = 1, limit = 20) {
+  const offset = (page - 1) * limit;
+
+  let whereConditions = `WHERE p.is_deleted = 0`;
+  let queryParams = [];
+  let countParams = [];
+
+  // filter by logged in user pets only if user_id exists
+  if (filters.user_id) {
+    whereConditions += ` AND p.user_id = ?`;
+    queryParams.push(filters.user_id);
+    countParams.push(filters.user_id);
+  }
+
+  // filter by pet id
+  if (filters.pet_id) {
+    whereConditions += ` AND p.pet_id = ?`;
+    queryParams.push(filters.pet_id);
+    countParams.push(filters.pet_id);
+  }
+
+  // filter by slug
+  if (filters.slug) {
+    whereConditions += ` AND p.slug = ?`;
+    queryParams.push(filters.slug);
+    countParams.push(filters.slug);
+  }
+
+  const countQuery = `
+    SELECT COUNT(DISTINCT p.pet_id) AS total
+    FROM pets p
+    ${whereConditions}
+  `;
+
+  const dataQuery = `
     SELECT 
       p.*,
       b.title AS breed,
@@ -217,7 +249,6 @@ var getPetBySlug = function (slug) {
           t.id, ':::',
           t.name
         )
-        ORDER BY t.name
         SEPARATOR '|||'
       ) AS tags
 
@@ -226,26 +257,179 @@ var getPetBySlug = function (slug) {
     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
     LEFT JOIN tags t ON pt.tag_id = t.id
     LEFT JOIN breeds b ON p.breed_id = b.id
-     LEFT JOIN breedcategory ct ON p.category_id = ct.id
     LEFT JOIN countries c ON p.country_id = c.id
-    WHERE p.slug = ? AND p.is_deleted = 0
+    LEFT JOIN breedcategory ct ON p.category_id = ct.id
+
+    ${whereConditions}
+
     GROUP BY p.pet_id
+    ORDER BY p.created_at DESC
+    LIMIT ? OFFSET ?
   `;
 
   return new Promise((resolve, reject) => {
-    db.query(query, [slug], function (err, result) {
-      if (err) return reject(err);
-      if (result.length === 0) return resolve(null);
+    db.query(countQuery, countParams, function (countErr, countResult) {
+      if (countErr) return reject(countErr);
 
-      const pet = result[0];
+      const total = countResult[0].total;
 
-      // Parse images
-      resolve(formatPetResponse(result[0]));
+      db.query(
+        dataQuery,
+        [...queryParams, limit, offset],
+        function (err, result) {
+          if (err) return reject(err);
+
+          const hasFilters =
+            filters.pet_id || filters.slug;
+
+          if (hasFilters && result.length === 0) {
+            return resolve({
+              total: 0,
+              pets: [],
+              notFound: true,
+            });
+          }
+
+          const pets = result.map(formatPetResponse);
+
+          resolve({
+            total,
+            pets,
+            notFound: false,
+          });
+        }
+      );
     });
   });
 };
 
+// Get pet by slug
+// var getPetBySlug = function (slug) {
+//   var query = `
+//     SELECT 
+//       p.*,
+//       b.title AS breed,
+//       c.name AS country,
+//       ct.title AS category,
+
+//       GROUP_CONCAT(
+//         DISTINCT CONCAT(
+//           pi.image_id, ':::',
+//           pi.image_url, ':::',
+//           IFNULL(pi.image_type, 'gallery'), ':::',
+//           IFNULL(pi.sort_order, 0)
+//         )
+//         ORDER BY pi.sort_order
+//         SEPARATOR '|||'
+//       ) AS images,
+
+//       GROUP_CONCAT(
+//         DISTINCT CONCAT(
+//           t.id, ':::',
+//           t.name
+//         )
+//         ORDER BY t.name
+//         SEPARATOR '|||'
+//       ) AS tags
+
+//     FROM pets p
+//     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+//     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
+//     LEFT JOIN tags t ON pt.tag_id = t.id
+//     LEFT JOIN breeds b ON p.breed_id = b.id
+//      LEFT JOIN breedcategory ct ON p.category_id = ct.id
+//     LEFT JOIN countries c ON p.country_id = c.id
+//     WHERE p.slug = ? AND p.is_deleted = 0
+//     GROUP BY p.pet_id
+//   `;
+
+//   return new Promise((resolve, reject) => {
+//     db.query(query, [slug], function (err, result) {
+//       if (err) return reject(err);
+//       if (result.length === 0) return resolve(null);
+
+//       const pet = result[0];
+
+//       // Parse images
+//       resolve(formatPetResponse(result[0]));
+//     });
+//   });
+// };
+
+// Get user pets
+// var getUserPets = function (userId, page = 1, limit = 20) {
+//   const offset = (page - 1) * limit;
+
+//   const countQuery = `
+//     SELECT COUNT(*) AS total
+//     FROM pets
+//     WHERE user_id = ? AND is_deleted = 0
+//   `;
+
+//   const dataQuery = `
+//     SELECT 
+//       p.*,
+//       b.title AS breed,
+//       c.name AS country,
+//       ct.title AS category,
+
+//       GROUP_CONCAT(
+//         DISTINCT CONCAT(
+//           pi.image_id, ':::', 
+//           pi.image_url, ':::', 
+//           IFNULL(pi.image_type, 'gallery'), ':::', 
+//           IFNULL(pi.sort_order, 0)
+//         )
+//         ORDER BY pi.sort_order
+//         SEPARATOR '|||'
+//       ) AS images,
+
+//       GROUP_CONCAT(
+//         DISTINCT CONCAT(
+//           t.id, ':::', t.name
+//         )
+//         SEPARATOR '|||'
+//       ) AS tags
+
+//     FROM pets p
+//     LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
+//     LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
+//     LEFT JOIN tags t ON pt.tag_id = t.id
+//     LEFT JOIN breeds b ON p.breed_id = b.id
+//     LEFT JOIN countries c ON p.country_id = c.id
+//     LEFT JOIN breedcategory ct ON p.category_id = ct.id
+//     WHERE p.user_id = ? AND p.is_deleted = 0
+//     GROUP BY p.pet_id
+//     ORDER BY p.created_at DESC
+//     LIMIT ? OFFSET ?
+//   `;
+
+//   return new Promise((resolve, reject) => {
+//     db.query(countQuery, [userId], function (countErr, countResult) {
+//       if (countErr) return reject(countErr);
+
+//       const total = countResult[0].total;
+
+//       db.query(
+//         dataQuery,
+//         [userId, limit, offset],
+//         function (err, result) {
+//           if (err) return reject(err);
+
+//           const pets = result.map(formatPetResponse);
+
+//           resolve({
+//             total,
+//             pets,
+//           });
+//         }
+//       );
+//     });
+//   });
+// };
+
 // Create pet images
+
 var createPetImages = function (petId, images) {
   if (!images || images.length === 0) {
     return Promise.resolve([]);
@@ -276,79 +460,6 @@ var createPetImages = function (petId, images) {
           }
         });
       }
-    });
-  });
-};
-
-// Get user pets
-
-var getUserPets = function (userId, page = 1, limit = 20) {
-  const offset = (page - 1) * limit;
-
-  const countQuery = `
-    SELECT COUNT(*) AS total
-    FROM pets
-    WHERE user_id = ? AND is_deleted = 0
-  `;
-
-  const dataQuery = `
-    SELECT 
-      p.*,
-      b.title AS breed,
-      c.name AS country,
-      ct.title AS category,
-
-      GROUP_CONCAT(
-        DISTINCT CONCAT(
-          pi.image_id, ':::', 
-          pi.image_url, ':::', 
-          IFNULL(pi.image_type, 'gallery'), ':::', 
-          IFNULL(pi.sort_order, 0)
-        )
-        ORDER BY pi.sort_order
-        SEPARATOR '|||'
-      ) AS images,
-
-      GROUP_CONCAT(
-        DISTINCT CONCAT(
-          t.id, ':::', t.name
-        )
-        SEPARATOR '|||'
-      ) AS tags
-
-    FROM pets p
-    LEFT JOIN pet_images pi ON p.pet_id = pi.pet_id
-    LEFT JOIN pet_tags pt ON p.pet_id = pt.pet_id
-    LEFT JOIN tags t ON pt.tag_id = t.id
-    LEFT JOIN breeds b ON p.breed_id = b.id
-    LEFT JOIN countries c ON p.country_id = c.id
-    LEFT JOIN breedcategory ct ON p.category_id = ct.id
-    WHERE p.user_id = ? AND p.is_deleted = 0
-    GROUP BY p.pet_id
-    ORDER BY p.created_at DESC
-    LIMIT ? OFFSET ?
-  `;
-
-  return new Promise((resolve, reject) => {
-    db.query(countQuery, [userId], function (countErr, countResult) {
-      if (countErr) return reject(countErr);
-
-      const total = countResult[0].total;
-
-      db.query(
-        dataQuery,
-        [userId, limit, offset],
-        function (err, result) {
-          if (err) return reject(err);
-
-          const pets = result.map(formatPetResponse);
-
-          resolve({
-            total,
-            pets,
-          });
-        }
-      );
     });
   });
 };
@@ -1293,10 +1404,12 @@ var deleteListingPet = function (listingId, userId) {
   });
 };
 
+
+
+
 module.exports = {
   createPet: createPet,
   createPetImages: createPetImages,
-  getUserPets: getUserPets,
   getPetById: getPetById,
   updatePet: updatePet,
   deletePetById: deletePetById,
@@ -1307,9 +1420,11 @@ module.exports = {
   reassignPetDevice: reassignPetDevice,
   getNearbyPets: getNearbyPets,
   updatePetTags: updatePetTags,
-  getPetBySlug: getPetBySlug,
   addListingPet: addListingPet,
   getPetListings: getPetListings,
   updateListingPet: updateListingPet,
   deleteListingPet: deleteListingPet,
+  getPets:getPets,
+  // getUserPets: getUserPets,
+  // getPetBySlug: getPetBySlug,
 };
