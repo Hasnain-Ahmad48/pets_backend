@@ -12,27 +12,41 @@ var storage = multer.diskStorage({
   filename: function (req, file, cb) {
     cb(
       null,
-      file.fieldname + "_" + Date.now() + path.extname(file.originalname)
+      file.fieldname + "_" + Date.now() + path.extname(file.originalname),
     );
   },
 });
-var upload = multer({ storage: storage });
+var upload = multer({storage: storage});
 
 router.post(
   "/registeruser",
   upload.single("image"),
-  authUserController.registerUser
+  authUserController.registerUser,
 );
 router.post("/signin", authUserController.signinUser);
 router.post("/auth/google", authUserController.signinWithGoogle);
 router.get("/appusers", authUserController.getAllAppuser);
 router.get("/appusersbyid/:id", authUserController.getAllAppuserById);
-router.patch("/updateProfile",  middleware.verifyAccessToken,upload.single("user_profile_photo"), authUserController.updateProfile);
+router.patch(
+  "/updateProfile",
+  middleware.verifyAccessToken,
+  upload.single("user_profile_photo"),
+  authUserController.updateProfile,
+);
 router.post("/logout", middleware.verifyAccessToken, authUserController.logout);
+router.get(
+  "/fetchprofile",
+  middleware.verifyAccessToken,
+  authUserController.fetchUser,
+);
 router.delete("/deleteuser/:id", authUserController.deleteAppUser);
 router.post("/addTrackingData", authUserController.addTrackingData);
 router.post("/geofenceEvent", authUserController.geofenceEventNotification);
-router.post("/getTrackingData", middleware.verifyAccessToken, authUserController.getTrackingData);
+router.post(
+  "/getTrackingData",
+  middleware.verifyAccessToken,
+  authUserController.getTrackingData,
+);
 router.get("/getCountries", authUserController.getCountries);
 router.post("/refresh-token", authUserController.refreshToken);
 

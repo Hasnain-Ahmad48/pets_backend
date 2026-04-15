@@ -1,20 +1,15 @@
 var db = require("../../config/DatabaseConnection.js");
 
-
-
 var signupUser = function (
- 
   email,
   hashedPassword,
   image,
-  firstName=null,
-  lastName=null,
-  status="1"
- 
+  firstName = null,
+  lastName = null,
+  status = "1",
 ) {
   var checkQuery = "SELECT COUNT(*) AS count FROM user_signup WHERE email = ?";
-  var insertQuery =
-    `INSERT INTO user_signup (email, password,  user_profile_photo, status,firstName, lastName) VALUES (?, ?, ?, ?, ?, ?)`;
+  var insertQuery = `INSERT INTO user_signup (email, password,  user_profile_photo, status,firstName,lastName) VALUES (?, ?, ?, ?,?,?)`;
   var selectQuery = "SELECT * FROM user_signup WHERE id = LAST_INSERT_ID()";
 
   return new Promise((resolve, reject) => {
@@ -28,9 +23,7 @@ var signupUser = function (
         } else {
           db.query(
             insertQuery,
-            [
-              email, hashedPassword,  image,firstName,lastName, status
-            ],
+            [email, hashedPassword, image, status,firstName,lastName],
             function (insertErr) {
               if (insertErr) {
                 reject(insertErr);
@@ -43,7 +36,7 @@ var signupUser = function (
                   }
                 });
               }
-            }
+            },
           );
         }
       }
@@ -51,34 +44,63 @@ var signupUser = function (
   });
 };
 
-var signupWithGoogle = function (firstName, lastName, email, image, google_id,isVerified="1", status = "1", user_type = "0") {
-  var insertQuery =
-    `INSERT INTO user_signup (user_type,isVerified, firstName, lastName, email, user_profile_photo,google_id, status) VALUES (?,?,?,?,?,?, ?, ?)`;
+
+
+var signupWithGoogle = function (
+  firstName,
+  lastName,
+  email,
+  image,
+  google_id,
+  isVerified = "1",
+  status = "1",
+  user_type = "0",
+) {
+  var insertQuery = `INSERT INTO user_signup (user_type,isVerified, firstName, lastName, email, user_profile_photo,google_id, status) VALUES (?,?,?,?,?,?,?,?)`;
   var selectQuery = "SELECT * FROM user_signup WHERE id = LAST_INSERT_ID()";
 
   return new Promise((resolve, reject) => {
     // First, insert the new user into the user_signup table
-    db.query(insertQuery, [user_type,isVerified, firstName, lastName, email, image,google_id, status], function (insertErr) {
-      if (insertErr) {
-        console.error("Error inserting user: ", insertErr);
-        return reject({ message: 'Error inserting user into database', error: insertErr });
-      }
-
-      // If insert is successful, get the newly inserted user
-      db.query(selectQuery, function (selectErr, result) {
-        if (selectErr) {
-          console.error("Error fetching user after insert: ", selectErr);
-          return reject({ message: 'Error fetching newly inserted user', error: selectErr });
+    db.query(
+      insertQuery,
+      [
+        user_type,
+        isVerified,
+        firstName,
+        lastName,
+        email,
+        image,
+        google_id,
+        status,
+      ],
+      function (insertErr) {
+        if (insertErr) {
+          console.error("Error inserting user: ", insertErr);
+          return reject({
+            message: "Error inserting user into database",
+            error: insertErr,
+          });
         }
 
-        // If user is found, resolve the promise with the user data
-        if (result.length > 0) {
-          resolve(result[0]);
-        } else {
-          reject({ message: 'User not found after insertion' });
-        }
-      });
-    });
+        // If insert is successful, get the newly inserted user
+        db.query(selectQuery, function (selectErr, result) {
+          if (selectErr) {
+            console.error("Error fetching user after insert: ", selectErr);
+            return reject({
+              message: "Error fetching newly inserted user",
+              error: selectErr,
+            });
+          }
+
+          // If user is found, resolve the promise with the user data
+          if (result.length > 0) {
+            resolve(result[0]);
+          } else {
+            reject({message: "User not found after insertion"});
+          }
+        });
+      },
+    );
   });
 };
 
@@ -90,7 +112,6 @@ var signupWithGoogle = function (firstName, lastName, email, image, google_id,is
 //   phoneNumber,
 //   image,
 
- 
 //   billing_first_name,
 //   billing_last_name,
 //   billing_address_1,
@@ -153,7 +174,7 @@ var signupWithGoogle = function (firstName, lastName, email, image, google_id,is
 //                       lastName: result[0].lastName,
 //                       email: result[0].email,
 //                       phoneNumber: result[0].phoneNumber,
-                     
+
 //                       billing_first_name: result[0].billing_first_name,
 //                       billing_last_name: result[0].billing_last_name,
 //                       billing_address_1: result[0].billing_address_1,
@@ -187,7 +208,8 @@ var signupWithGoogle = function (firstName, lastName, email, image, google_id,is
 // };
 
 var updateOnlyAuthToken = function (userId, tokens) {
-  var updateQuery =  "UPDATE user_signup SET auth_token = ?, refresh_token = ? WHERE id = ?";
+  var updateQuery =
+    "UPDATE user_signup SET auth_token = ?, refresh_token = ? WHERE id = ?";
 
   var selectQuery = "SELECT * FROM user_signup WHERE id = ?";
 
@@ -205,24 +227,36 @@ var updateOnlyAuthToken = function (userId, tokens) {
               reject(selectErr);
             } else {
               // Resolve with the updated user data
-               resolve(result[0]);
+              resolve(result[0]);
             }
           });
         }
-      }
+      },
     );
   });
 };
 
-var updateUserAuthToken = function (userId, tokens, firebaseToken=null,devicetype=null) {
-  var updateQuery =  "UPDATE user_signup SET devicetype = ?, firebase_token = ?, auth_token = ?, refresh_token = ? WHERE id = ?";
+var updateUserAuthToken = function (
+  userId,
+  tokens,
+  firebaseToken = null,
+  devicetype = null,
+) {
+  var updateQuery =
+    "UPDATE user_signup SET devicetype = ?, firebase_token = ?, auth_token = ?, refresh_token = ? WHERE id = ?";
 
   var selectQuery = "SELECT * FROM user_signup WHERE id = ?";
 
   return new Promise((resolve, reject) => {
     db.query(
       updateQuery,
-      [devicetype, firebaseToken, tokens.auth_token, tokens.refresh_token, userId],
+      [
+        devicetype,
+        firebaseToken,
+        tokens.auth_token,
+        tokens.refresh_token,
+        userId,
+      ],
       function (updateErr, updateResult) {
         if (updateErr) {
           reject(updateErr);
@@ -233,11 +267,11 @@ var updateUserAuthToken = function (userId, tokens, firebaseToken=null,devicetyp
               reject(selectErr);
             } else {
               // Resolve with the updated user data
-               resolve(result[0]);
+              resolve(result[0]);
             }
           });
         }
-      }
+      },
     );
   });
 };
@@ -280,10 +314,8 @@ var loginUser = function (email) {
   return new Promise((resolve, reject) => {
     db.query(query, [email], function (err, result) {
       if (err) {
-        
         reject(err);
       } else {
-        
         resolve(result[0]);
       }
     });
@@ -299,13 +331,32 @@ var loginUser_ = function (email) {
     db.query(query, [email], function (err, result) {
       if (err) {
         console.log(err);
-        reject(err);  // Reject the promise with the error if there's a DB issue
+        reject(err); // Reject the promise with the error if there's a DB issue
       } else if (result.length === 0) {
         // If no user is found (empty result)
         reject(new Error("User not found"));
       } else {
         console.log(result);
-        resolve(result[0]);  // Resolve the promise with the first result (the user object)
+        resolve(result[0]); // Resolve the promise with the first result (the user object)
+      }
+    });
+  });
+};
+
+var fetchUser = function (id) {
+  var query = "SELECT * FROM user_signup WHERE id = ?";
+
+  return new Promise((resolve, reject) => {
+    db.query(query, [id], function (err, result) {
+      if (err) {
+        console.log(err);
+        reject(err); // Reject the promise with the error if there's a DB issue
+      } else if (result.length === 0) {
+        // If no user is found (empty result)
+        reject(new Error("User not found"));
+      } else {
+        console.log(result);
+        resolve(result[0]); // Resolve the promise with the first result (the user object)
       }
     });
   });
@@ -328,8 +379,8 @@ var getAllAppUsers = () => {
   });
 };
 
-var getAllAppUsersById = (id) => {
-    const query = `SELECT id,email, 	
+var getAllAppUsersById = id => {
+  const query = `SELECT id,email, 	
 billing_first_name,	
 billing_last_name,
 
@@ -354,19 +405,19 @@ shipping_postal_code,
 shipping_email	,
 shipping_phone  from user_signup WHERE id = ? `;
 
-    return new Promise((resolve, reject) => {
-      db.query(query,[id], (err, result) => {
-        if (err) {
-          console.log(err);
-          reject(err);
-        } else {
-          resolve(result);
-        }
-      });
+  return new Promise((resolve, reject) => {
+    db.query(query, [id], (err, result) => {
+      if (err) {
+        console.log(err);
+        reject(err);
+      } else {
+        resolve(result);
+      }
     });
-  };
+  });
+};
 
-var deleteAppUser = (id) => {
+var deleteAppUser = id => {
   const query = `DELETE FROM user_signup WHERE id = ?`;
   return new Promise((resolve, reject) => {
     db.query(query, [id], (err, result) => {
@@ -380,7 +431,7 @@ var deleteAppUser = (id) => {
   });
 };
 // GET APP USER BY ID
-var getAppUserByIdfordeleteImage = (id) => {
+var getAppUserByIdfordeleteImage = id => {
   const query = `SELECT * FROM user_signup WHERE id = ?`;
   return new Promise((resolve, reject) => {
     db.query(query, [id], (err, result) => {
@@ -443,15 +494,15 @@ function updateUserProfile(userId, updates) {
   ];
 
   const fields = Object.keys(updates).filter(
-    (key) => updates[key] !== undefined && allowedFields.includes(key)
+    key => updates[key] !== undefined && allowedFields.includes(key),
   );
 
   if (fields.length === 0) {
     return Promise.reject(new Error("No valid fields to update"));
   }
 
-  const values = fields.map((field) => updates[field]);
-  const setClause = fields.map((field) => `${field} = ?`).join(", ");
+  const values = fields.map(field => updates[field]);
+  const setClause = fields.map(field => `${field} = ?`).join(", ");
   const sql = `UPDATE user_signup SET ${setClause} WHERE id = ?`;
   values.push(userId);
 
@@ -470,12 +521,11 @@ function updateUserProfile(userId, updates) {
             return reject(selectErr);
           }
           resolve(rows[0]); // return updated user row
-        }
+        },
       );
     });
   });
 }
-
 
 var getUserByRefreshToken = function (token) {
   var query = "SELECT * FROM user_signup WHERE refresh_token = ?";
@@ -483,22 +533,18 @@ var getUserByRefreshToken = function (token) {
   return new Promise((resolve, reject) => {
     db.query(query, [token], function (err, result) {
       if (err) {
-        
         reject(err);
       } else {
-        
         resolve(result[0]);
       }
     });
   });
 };
 
- 
-
 async function getUserByToken(token) {
   const [rows] = await db.query(
     "SELECT * FROM user_signup WHERE auth_token = ?",
-    [token]
+    [token],
   );
   return rows[0];
 }
@@ -506,8 +552,8 @@ async function getUserByToken(token) {
 async function logoutUser(userId) {
   const sql = `UPDATE user_signup SET auth_token = NULL WHERE id = ?`;
   await db.query(sql, [userId]);
-  return { message: "User logged out successfully" };
-};
+  return {message: "User logged out successfully"};
+}
 
 async function getUserToken(userId) {
   return new Promise((resolve, reject) => {
@@ -555,11 +601,11 @@ function addTrackingData(data) {
             return reject(selectErr);
           }
           resolve(rows[0]); // return inserted tracker record
-        }
+        },
       );
     });
   });
-};
+}
 
 async function addApiLog(endpoint, method, requestBody) {
   const sql = `
@@ -636,7 +682,7 @@ module.exports = {
   signupUser: signupUser,
   loginUser: loginUser,
   loginUser_: loginUser_,
-  signupWithGoogle : signupWithGoogle,
+  signupWithGoogle: signupWithGoogle,
   updateUserAuthToken: updateUserAuthToken,
   getAllAppUsers: getAllAppUsers,
   getAllAppUsersById: getAllAppUsersById,
@@ -644,13 +690,14 @@ module.exports = {
   getAppUserByIdfordeleteImage: getAppUserByIdfordeleteImage,
   updateUserProfile: updateUserProfile,
   getUserByToken: getUserByToken,
-  logoutUser:logoutUser,
-  addTrackingData:addTrackingData,
-  addApiLog:addApiLog,
-  getTrackingData:getTrackingData,
-  clearUserTokens:clearUserTokens,
-  getUserByRefreshToken:getUserByRefreshToken,
-  getCountries:getCountries,
-  getUserToken:getUserToken,
-  updateOnlyAuthToken:updateOnlyAuthToken,
+  logoutUser: logoutUser,
+  addTrackingData: addTrackingData,
+  addApiLog: addApiLog,
+  getTrackingData: getTrackingData,
+  clearUserTokens: clearUserTokens,
+  getUserByRefreshToken: getUserByRefreshToken,
+  getCountries: getCountries,
+  getUserToken: getUserToken,
+  updateOnlyAuthToken: updateOnlyAuthToken,
+  fetchUser: fetchUser,
 };
