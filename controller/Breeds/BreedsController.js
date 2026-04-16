@@ -155,7 +155,7 @@ const insertBreedWithImageController = async (req, res) => {
 
 // Update breed with image
 const BreedsupdateController = async (req, res) => {
-  const {
+  let {
     title,
     description,
     categoryid,
@@ -352,20 +352,6 @@ const get10BreedsbyCategory = async (req, res) => {
   }
 };
 
-// const getSingleBreedById = async (req, res) => {
-//   try {
-//     const slug = req.params.slug;
-
-//     const result = await BreedsModel.getSingleBreedById(slug);
-
-//     res.status(200).json({
-//       data: result,
-//     });
-//   } catch (error) {
-//     console.error("Error fetching Breed by ID:", error);
-//     res.status(500).json({success: false, message: "Internal server error"});
-//   }
-// };
 
 const getSingleBreedById = async (req, res) => {
   try {

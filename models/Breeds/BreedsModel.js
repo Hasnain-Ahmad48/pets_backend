@@ -74,7 +74,7 @@ var insertBreedWithImage = function (
           );
         }
 
-        // 3️⃣ INSERT Q/A
+        // INSERT Q/A
         for (let q of qa) {
           await queryAsync(
             conn,
@@ -884,23 +884,6 @@ var deleteBreed = function (id) {
   });
 };
 
-// var getBreedById = function (id) {
-//   var query =
-//     "SELECT b.id AS breed_id, b.title AS breed_title, b.slug, b.description AS breed_description,b.categoryid ,bc.title AS category_title,b.lifespan as lifespan,b.weight as weight,b.height as height,b.shortDescription as shortDescription,GROUP_CONCAT(bi.image) AS breed_images, GROUP_CONCAT(bi.id) AS id,b.meta_title, b.meta_description ,b.meta_keywords ,b.meta_image ,b.meta_canonical, b.is_indexed , b.og_type FROM breeds b JOIN breedcategory bc ON b.categoryid = bc.id LEFT JOIN breedsimages bi ON b.id = bi.breed_id WHERE b.id =? GROUP BY b.id, b.title, b.description, bc.title";
-
-//   var values = [id];
-
-//   return new Promise(function (resolve, reject) {
-//     db.query(query, values, function (err, result) {
-//       if (err) {
-//         reject(err);
-//       } else {
-//         resolve(result);
-//       }
-//     });
-//   });
-// };
-
 var getBreedById = function (id) {
   var query = `
     SELECT 
@@ -930,10 +913,8 @@ var getBreedById = function (id) {
     FROM breeds b
     JOIN breedcategory bc ON b.categoryid = bc.id
     LEFT JOIN breedsimages bi ON b.id = bi.breed_id
-
     LEFT JOIN breed_tags bt ON b.id = bt.breed_id
     LEFT JOIN tags t ON t.id = bt.tag_id
-
     WHERE b.id = ?
   `;
 
@@ -962,9 +943,9 @@ var getBreedById = function (id) {
         is_indexed: rows[0].is_indexed,
         og_type: rows[0].og_type,
 
-        // Build lists
         images: [],
         tags: [],
+        qa: [],
       };
 
       const imageSet = new Set();
@@ -990,7 +971,26 @@ var getBreedById = function (id) {
         }
       });
 
-      resolve([breed]);
+      // ✅ FETCH QA SEPARATELY
+      const qaQuery = `
+        SELECT id, question, answer, extra
+        FROM \`breedsq&a\`
+        WHERE breed_id = ?
+        ORDER BY id ASC
+      `;
+
+      db.query(qaQuery, [id], function (qaErr, qaRows) {
+        if (qaErr) return reject(qaErr);
+
+        breed.qa = qaRows.map(q => ({
+          id: q.id,
+          question: q.question,
+          answer: q.answer,
+          extra: q.extra,
+        }));
+
+        resolve([breed]);
+      });
     });
   });
 };
@@ -1190,7 +1190,7 @@ const getSingleBreedById = slug => {
       b.height,
       b.shortDescription,
       GROUP_CONCAT(DISTINCT bi.image SEPARATOR '|') AS breed_images,
-      GROUP_CONCAT(DISTINCT CONCAT(t.id,':',t.name) ) AS tags,
+      GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags,
       b.meta_title,
       b.meta_description,
       b.meta_keywords,
@@ -1198,14 +1198,14 @@ const getSingleBreedById = slug => {
       b.meta_canonical,
       b.is_indexed,
       b.og_type
-    FROM breeds AS b
-    LEFT JOIN breedsimages AS bi ON b.id = bi.breed_id
-    JOIN breedcategory AS bc ON b.categoryid = bc.id
+    FROM breeds b
+    LEFT JOIN breedsimages bi ON b.id = bi.breed_id
+    JOIN breedcategory bc ON b.categoryid = bc.id
     LEFT JOIN breed_tags bt ON b.id = bt.breed_id
     LEFT JOIN tags t ON t.id = bt.tag_id
     WHERE b.slug = ?
     GROUP BY b.id
-    LIMIT 1;
+    LIMIT 1
   `;
 
   const qaQuery = `
@@ -1215,7 +1215,8 @@ const getSingleBreedById = slug => {
       answer,
       extra
     FROM \`breedsq&a\`
-    WHERE breed_id = ?;
+    WHERE breed_id = ?
+    ORDER BY id ASC
   `;
 
   return new Promise((resolve, reject) => {
@@ -1232,25 +1233,16 @@ const getSingleBreedById = slug => {
         breed_id: breedData.breed_id,
         breed_title: breedData.breed_title,
         slug: breedData.slug,
+        breed_description: breedData.breed_description,
+        category_title: breedData.category_title,
         lifespan: breedData.lifespan,
         weight: breedData.weight,
         height: breedData.height,
         shortDescription: breedData.shortDescription,
-        breed_description: breedData.breed_description,
-        category_title: breedData.category_title,
 
         breed_images: breedData.breed_images
           ? breedData.breed_images.split("|")
           : [],
-
-        tags: breedData.tags ? breedData.tags.split(",").map(tag=>{
-          const[id,name]=tag.split(":")
-          return{
-            id:Number(id),
-            name,
-          }
-        }) : [],
-
         meta_title: breedData.meta_title,
         meta_description: breedData.meta_description,
         meta_keywords: breedData.meta_keywords,
@@ -1258,12 +1250,21 @@ const getSingleBreedById = slug => {
         meta_canonical: breedData.meta_canonical,
         is_indexed: breedData.is_indexed,
         og_type: breedData.og_type,
-
+        tags: breedData.tags
+          ? breedData.tags.split(",").map(tag => {
+              const [id, name] = tag.split(":");
+              return {
+                id: Number(id),
+                name,
+              };
+            })
+          : [],
         qa: [],
       };
 
-      db.query(qaQuery, [breed.breed_id], (err, qaResult) => {
-        if (err) return reject(err);
+      // ✅ Fetch QA separately
+      db.query(qaQuery, [breed.breed_id], (qaErr, qaResult) => {
+        if (qaErr) return reject(qaErr);
 
         breed.qa = qaResult.map(q => ({
           id: q.id,
