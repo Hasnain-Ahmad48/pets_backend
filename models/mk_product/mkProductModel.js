@@ -278,7 +278,7 @@ var getAllProductsPagination = function (page, limit, filters, callback) {
     p.*,
     GROUP_CONCAT(DISTINCT c.color_value) AS colors,
     GROUP_CONCAT(DISTINCT img.image) AS images,
-    GROUP_CONCAT(DISTINCT t.name) AS tags,
+    GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags,
     cat.name AS categoryTitle,
     sub.name AS subCategory,
     s.name AS shopName,
@@ -342,7 +342,7 @@ var getAllProductsPagination = function (page, limit, filters, callback) {
     params.push(filters.original_price);
   }
 
-  // ✅ Brand filter (changed from 'brands' to use brand_id)
+  // Brand filter (changed from 'brands' to use brand_id)
   if (filters.brands && filters.brands.length > 0) {
     conditions.push(
       `p.brand_id IN (${filters.brands.map(() => "?").join(",")})`,
@@ -426,7 +426,15 @@ var getAllProductsPagination = function (page, limit, filters, callback) {
         ...product,
         colors: colors ? colors.split(",") : [],
         images: images ? images.split(",") : [],
-        tags: tags ? tags.split(",") : [],
+        tags: tags
+          ? tags.split(",").map(tag => {
+              const [id, name] = tag.split(":");
+              return {
+                id: Number(id),
+                name,
+              };
+            })
+          : [],
         brand: brandName
           ? {
               name: brandName,
@@ -444,35 +452,42 @@ var getAllProductsPagination = function (page, limit, filters, callback) {
 const getAllProducts = () => {
   return new Promise((resolve, reject) => {
     const query = `
-            SELECT p.*, 
-            GROUP_CONCAT(DISTINCT c.color_value) AS colors, 
-            GROUP_CONCAT(DISTINCT img.image) AS images, 
-            cat.name AS categoryTitle, 
-            sub.name AS subCategory, 
-            s.name AS shopName,
-            b.name AS brandName,
-            b.logo AS brandLogo,
-            b.slug AS brandSlug,
-            COALESCE(d.percent, 0) AS discountPercentage 
-            FROM mk_products AS p 
-            LEFT JOIN mk_products_colors AS c ON p.id = c.product_id 
-            LEFT JOIN mk_categories AS cat ON p.cat_id = cat.id 
-            LEFT JOIN mk_subcategories AS sub ON p.sub_cat_id = sub.id 
-            LEFT JOIN mk_shops AS s ON p.shop_id = s.id 
-            LEFT JOIN brands AS b ON p.brand_id = b.id
-            LEFT JOIN mk_product_images AS img ON p.id = img.product_id 
-            LEFT JOIN ( 
-                SELECT product_id, discount_id, percent 
-                FROM mk_products_discount AS pd 
-                LEFT JOIN mk_discounts AS d ON pd.discount_id = d.id 
-                WHERE pd.added_date = ( 
-                    SELECT MAX(added_date) 
-                    FROM mk_products_discount 
-                    WHERE product_id = pd.product_id 
-                ) 
-            ) AS d ON p.id = d.product_id 
-            GROUP BY p.id;
-        `;
+  SELECT 
+    p.*, 
+    GROUP_CONCAT(DISTINCT c.color_value) AS colors, 
+    GROUP_CONCAT(DISTINCT img.image) AS images, 
+    cat.name AS categoryTitle, 
+    sub.name AS subCategory, 
+    s.name AS shopName,
+    b.name AS brandName,
+    b.logo AS brandLogo,
+    b.slug AS brandSlug,
+GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags,
+COALESCE(d.percent, 0) AS discountPercentage 
+FROM mk_products AS p 
+
+  LEFT JOIN mk_products_colors AS c ON p.id = c.product_id 
+  LEFT JOIN mk_categories AS cat ON p.cat_id = cat.id 
+  LEFT JOIN mk_subcategories AS sub ON p.sub_cat_id = sub.id 
+  LEFT JOIN mk_shops AS s ON p.shop_id = s.id 
+  LEFT JOIN brands AS b ON p.brand_id = b.id
+  LEFT JOIN mk_product_images AS img ON p.id = img.product_id 
+  LEFT JOIN mk_product_tags pt ON p.id = pt.product_id
+  LEFT JOIN tags t ON pt.tag_id = t.id
+
+  LEFT JOIN ( 
+      SELECT product_id, discount_id, percent 
+      FROM mk_products_discount AS pd 
+      LEFT JOIN mk_discounts AS d ON pd.discount_id = d.id 
+      WHERE pd.added_date = ( 
+          SELECT MAX(added_date) 
+          FROM mk_products_discount 
+          WHERE product_id = pd.product_id 
+      ) 
+  ) AS d ON p.id = d.product_id 
+
+  GROUP BY p.id;
+`;
 
     db.query(query, (err, result) => {
       if (err) {
@@ -483,6 +498,15 @@ const getAllProducts = () => {
       const products = result.map(product => {
         const colors = product.colors ? product.colors.split(",") : [];
         const images = product.images ? product.images.split(",") : [];
+        const tags = product.tags
+          ? product.tags.split(",").map(tag => {
+              const [id, name] = tag.split(":");
+              return {
+                id: Number(id),
+                name,
+              };
+            })
+          : [];
 
         const brand = product.brandName
           ? {
@@ -492,15 +516,16 @@ const getAllProducts = () => {
             }
           : null;
 
-        // ❌ remove duplicate fields
+        // remove duplicate/unwanted fields
         delete product.brandName;
         delete product.brandLogo;
         delete product.brandSlug;
-
+        delete product.search_tag;
         return {
           ...product,
           colors,
           images,
+          tags,
           brand,
         };
       });
@@ -806,6 +831,7 @@ const getProductById = productId => {
             SELECT p.*, 
             GROUP_CONCAT(DISTINCT c.color_value) AS colors, 
             GROUP_CONCAT(DISTINCT img.image) AS images, 
+            GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name)) AS tags,
             cat.name AS categoryTitle, 
             sub.name AS subCategory, 
             s.name AS shopName,
@@ -823,6 +849,8 @@ const getProductById = productId => {
             LEFT JOIN mk_shops AS s ON p.shop_id = s.id 
             LEFT JOIN brands AS b ON p.brand_id = b.id
             LEFT JOIN mk_product_images AS img ON p.id = img.product_id 
+            LEFT JOIN mk_product_tags pt ON p.id = pt.product_id
+LEFT JOIN tags t ON pt.tag_id = t.id
             LEFT JOIN ( 
                 SELECT product_id, discount_id, percent 
                 FROM mk_products_discount AS pd 
@@ -849,10 +877,19 @@ const getProductById = productId => {
       const product = result[0];
       const colors = product.colors ? product.colors.split(",") : [];
       const images = product.images ? product.images.split(",") : [];
+      const tags = product.tags
+        ? product.tags.split(",").map(tag => {
+            const [id, name] = tag.split(":");
+            return {
+              id: Number(id),
+              name,
+            };
+          })
+        : [];
       const formattedProduct = {
-        ...product,
         colors,
         images,
+        tags,
         brand: product.brandName
           ? {
               id: product.brandId,
@@ -893,7 +930,7 @@ const updateProductById = (
   images,
   colors,
   featuredImage,
-  brand_id
+  brand_id,
 ) => {
   return new Promise((resolve, reject) => {
     const updateProductQuery = `
@@ -963,7 +1000,7 @@ const updateProductById = (
           product_unit,
           product_measurement,
           brand_id,
-          productId
+          productId,
         ],
         (err, result) => {
           if (err) {
@@ -976,9 +1013,7 @@ const updateProductById = (
             db.query(deleteColorsQuery, [productId], err => {
               if (err) return db.rollback(() => reject(err));
 
-              const colorValues = colors.map(
-                color => [productId, color]
-              );
+              const colorValues = colors.map(color => [productId, color]);
 
               db.query(insertColorsQuery, [colorValues], err => {
                 if (err) return db.rollback(() => reject(err));
@@ -992,11 +1027,7 @@ const updateProductById = (
 
             db.query(deleteImagesQuery, [productId], err => {
               if (err) return db.rollback(() => reject(err));
-
-              const imageValues = images.map(
-                image => [productId, image]
-              );
-
+              const imageValues = images.map(image => [productId, image]);
               db.query(insertImagesQuery, [imageValues], err => {
                 if (err) return db.rollback(() => reject(err));
                 callback();
@@ -1014,7 +1045,7 @@ const updateProductById = (
               });
             });
           });
-        }
+        },
       );
     });
   });
@@ -1896,6 +1927,7 @@ const createOrderModel = (
 // };
 
 // with pagination
+
 const getAllOrders = (user_id = null, limit = 20, offset = 0) => {
   return new Promise((resolve, reject) => {
     let baseQuery = `
@@ -1998,70 +2030,6 @@ const getAllOrdersModel = () => {
     });
   });
 };
-
-// const getAllOrdersModelById = (id) => {
-//     return new Promise((resolve, reject) => {
-//         const query = `
-//             SELECT
-//                 h.id AS orderId,
-//                 h.*,
-//                 d.original_price,
-//                 d.product_unit,
-//                 d.qty,
-//                 d.shipping_cost,
-//                 p.id AS productId,
-//                 p.name AS productName,
-//                 s.id AS shopId,
-//                 s.name AS shopName,
-//                 s.description AS shopDescription,
-//                 s.email AS shopEmail,
-//                 u.email AS userEmail,
-//                 u.firstName,
-//                 u.lastName,
-//                 mk.image,
-//                 ts.title AS statusTitle
-//             FROM mk_transactions_header AS h
-//             LEFT JOIN mk_transactions_status AS ts ON h.trans_status_id = ts.id
-//             LEFT JOIN mk_transactions_detail AS d ON h.id = d.id
-//             LEFT JOIN mk_shops AS s ON h.shop_id = s.id
-//             LEFT JOIN user_signup AS u ON h.user_id = u.id
-//             LEFT JOIN mk_products AS p ON d.product_id = p.id
-//             LEFT JOIN mk_product_images AS mk ON p.id = mk.product_id
-//             WHERE h.id = ?
-//         `;
-
-//         db.query(query, [id], (error, results) => {
-//             if (error) {
-//                 return reject(error);
-//             }
-
-//             if (results.length === 0) {
-//                 return resolve(null); // Handle no results
-//             }
-
-//             const order = {
-//                 orderId: results[0].orderId,
-//                 ...results[0],
-//                 products: [],
-//             };
-
-//             results.forEach(row => {
-//                 const product = {
-//                     productId: row.productId,
-//                     productName: row.productName,
-//                     originalPrice: row.original_price,
-//                     productUnit: row.product_unit,
-//                     quantity: row.quantity,
-//                     image: row.image,
-//                 };
-
-//                 order.products.push(product);
-//             });
-
-//             resolve(order);
-//         });
-//     });
-// };
 
 const getAllOrdersModelById = orderId => {
   return new Promise((resolve, reject) => {
@@ -2247,9 +2215,7 @@ const getAllOrdersModelById = orderId => {
           firstName: result[0].firstName,
           lastName: result[0].lastName,
         },
-
         statusTitle: result[0].statusTitle,
-
         review: result[0].reviewRating
           ? {
               rating: result[0].reviewRating,
@@ -2351,56 +2317,6 @@ const getTransactionRecord = () => {
   });
 };
 
-//create discount model
-
-// const createDiscount = (shop_id, name, discount, isPublish, image, productId) => {
-//     return new Promise((resolve, reject) => {
-//         db.beginTransaction((err) => {
-//             if (err) {
-//                 return reject(err);
-//             }
-
-//             // Insert into mk_discounts
-//             const discountQuery = `INSERT INTO mk_discounts (shop_id, name, percent, status) VALUES (?, ?, ?, ?)`;
-//             const discountValues = [shop_id, name, discount, isPublish];
-
-//             db.query(discountQuery, discountValues, (error, result) => {
-//                 if (error) {
-//                     return db.rollback(() => reject(error));
-//                 }
-
-//                 const discountId = result.insertId; // Get the inserted discount ID
-
-//                 // Insert into mk_discount_image
-//                 const imageQuery = `INSERT INTO mk_discount_image (discount_id, image) VALUES (?, ?)`;
-//                 const imageValues = [discountId, image];
-
-//                 db.query(imageQuery, imageValues, (imageErr, imageResult) => {
-//                     if (imageErr) {
-//                         return db.rollback(() => reject(imageErr));
-//                     }
-
-//                     // Insert into mk_products_discount
-//                     const productDiscountQuery = `INSERT INTO mk_products_discount (discount_id, product_id) VALUES (?, ?)`;
-//                     const productDiscountValues = [discountId, productId];
-
-//                     db.query(productDiscountQuery, productDiscountValues, (productErr, productResult) => {
-//                         if (productErr) {
-//                             return db.rollback(() => reject(productErr));
-//                         }
-
-//                         db.commit((commitErr) => {
-//                             if (commitErr) {
-//                                 return db.rollback(() => reject(commitErr));
-//                             }
-//                             resolve({ discountId, message: 'Discount created successfully!' });
-//                         });
-//                     });
-//                 });
-//             });
-//         });
-//     });
-// };
 const createDiscount = (
   shop_id,
   name,
@@ -2493,11 +2409,8 @@ LEFT JOIN
 LEFT JOIN 
     mk_products AS prod ON p.product_id = prod.id
 GROUP BY 
-    d.id, d.name, d.percent, d.status, i.image;
-
-           
+    d.id, d.name, d.percent, d.status, i.image;   
         `;
-
     db.query(query, (error, result) => {
       if (error) {
         return reject(error);
@@ -2519,7 +2432,6 @@ const getDiscountById = id => {
       WHERE d.id = ?
       GROUP BY d.id, d.name, d.percent, d.status, i.image;
     `;
-
     db.query(query, [id], (error, result) => {
       if (error) {
         return reject(error);
@@ -2680,7 +2592,6 @@ const getMinMaxPrice = () => {
     });
   });
 };
-
 //hel[per function to get products by brand id]
 const getProductsByBrandId = brandId => {
   return new Promise((resolve, reject) => {
@@ -2721,7 +2632,6 @@ const getProductsByBrandId = brandId => {
         console.error("Get products by brand error:", err);
         return reject(err);
       }
-
       const products = result.map(product => {
         const colors = product.colors ? product.colors.split(",") : [];
         const images = product.images ? product.images.split(",") : [];
@@ -2738,13 +2648,10 @@ const getProductsByBrandId = brandId => {
             : null,
         };
       });
-
       resolve(products);
     });
   });
 };
-
-// Export it
 
 module.exports = {
   mkProductModel,
@@ -2765,9 +2672,7 @@ module.exports = {
   deleteOrders,
   getOrderStatus,
   updateOrderStatus,
-
   getTransactionRecord,
-
   createDiscount,
   getDiscountsProducts,
   getDiscountById,
@@ -2782,6 +2687,5 @@ module.exports = {
   getAllProductsPagination,
   searchProducts,
   getAllOrders,
-
   getProductsByBrandId,
 };
