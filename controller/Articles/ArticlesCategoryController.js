@@ -28,7 +28,7 @@ exports.getAllTags = async function (req, res) {
 };
 
 exports.getArticleCategory = async function (req, res) {
-  const {page} = req.params;
+  const page = parseInt(req.params.page) || 1;
   try {
     const limit = parseInt(req.query.limit) || 20;
     const totalArticles = await categoryModel.getTotalArticles();
@@ -73,7 +73,11 @@ exports.addArticle = async function (req, res) {
     description = req.body.description,
     categoryid = req.body.categoryid,
     userid = req.body.userid,
-    tags = req.body.tags;
+    tags = req.body.tags
+      ? typeof req.body.tags === "string"
+        ? JSON.parse(req.body.tags)
+        : req.body.tags
+      : [];
   qa = req.body.qa ? JSON.parse(req.body.qa) : [];
   var imageUrl = req.file ? "articles/" + req.file.filename : null;
   console.log("Tags", tags);
@@ -280,32 +284,110 @@ exports.getArticleInProfileController = async function (req, res) {
 //   }
 // };
 
+// exports.updateArticleController = async function (req, res) {
+//   const {title, description, categoryid, tags} = req.body;
+//   const id = req.params.id;
+
+//   const imageUrl = req.file ? "articles/" + req.file.filename : null;
+
+//   try {
+//     const result = await categoryModel.updateArticle(
+//       id,
+//       title,
+//       description,
+//       imageUrl,
+//       categoryid,
+//       Array.isArray(tags) ? tags : [], // <-- ensure array
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Article updated successfully",
+//       result,
+//     });
+//   } catch (error) {
+//     console.error("Error updating article:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//     });
+//   }
+// };
+
 exports.updateArticleController = async function (req, res) {
-  const {title, description, categoryid, tags} = req.body;
-  const id = req.params.id;
-
-  const imageUrl = req.file ? "articles/" + req.file.filename : null;
-
   try {
+    const id = parseInt(req.params.id);
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Article ID is required",
+      });
+    }
+
+    let {title, description, categoryid, tags} = req.body;
+
+    // ✅ Handle image
+    const imageUrl = req.file ? "articles/" + req.file.filename : null;
+
+    // ✅ FIX 1 — Parse tags properly (handles JSON + form-data)
+    let parsedTags = [];
+
+    if (typeof tags === "string") {
+      try {
+        parsedTags = JSON.parse(tags);
+      } catch (e) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid tags format. Must be JSON array",
+        });
+      }
+    } else if (Array.isArray(tags)) {
+      parsedTags = tags;
+    }
+
+    // ✅ Ensure all tags are numbers
+    parsedTags = parsedTags.map(t => Number(t)).filter(t => !isNaN(t));
+
+    // ✅ Optional: Basic validation
+    if (!title || !description || !categoryid) {
+      return res.status(400).json({
+        success: false,
+        message: "Title, description and categoryid are required",
+      });
+    }
+
+    let parsedQA = [];
+
+    if (typeof req.body.qa === "string") {
+      parsedQA = JSON.parse(req.body.qa);
+    } else if (Array.isArray(req.body.qa)) {
+      parsedQA = req.body.qa;
+    }
+
+    // ✅ Call model
     const result = await categoryModel.updateArticle(
       id,
       title,
       description,
       imageUrl,
       categoryid,
-      Array.isArray(tags) ? tags : [], // <-- ensure array
+      parsedTags,
+      parsedQA,
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Article updated successfully",
       result,
     });
   } catch (error) {
     console.error("Error updating article:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
+      error: error.message,
     });
   }
 };

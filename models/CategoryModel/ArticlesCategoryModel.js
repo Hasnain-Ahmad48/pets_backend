@@ -368,7 +368,8 @@ var updateArticle = async function (
   description,
   imageUrl,
   categoryid,
-  tags = []
+  tags = [],
+  qa = []
 ) {
   return new Promise((resolve, reject) => {
     let query;
@@ -388,26 +389,23 @@ var updateArticle = async function (
       if (err) return reject("Error updating article: " + err.message);
 
       try {
-        // *** FIX 1 — convert tags to integers ***
+        // ================= TAGS =================
         tags = tags.map(t => Number(t));
 
-        // 1. Get current tags
         const currentTags = await new Promise((res, rej) => {
           db.query(
             "SELECT tag_id FROM article_tags WHERE article_id=?",
             [id],
             (err, rows) => {
               if (err) rej(err);
-              else res(rows.map(r => Number(r.tag_id))); // FIX 2 — number convert
+              else res(rows.map(r => Number(r.tag_id)));
             }
           );
         });
 
-        // 2. Compare properly
         const tagsToAdd = tags.filter(tag => !currentTags.includes(tag));
         const tagsToRemove = currentTags.filter(tag => !tags.includes(tag));
 
-        // 3. Insert new tags
         if (tagsToAdd.length > 0) {
           const insertValues = tagsToAdd.map(tag => [id, tag]);
           await new Promise((res, rej) =>
@@ -419,7 +417,6 @@ var updateArticle = async function (
           );
         }
 
-        // 4. Delete removed tags
         if (tagsToRemove.length > 0) {
           await new Promise((res, rej) =>
             db.query(
@@ -430,10 +427,65 @@ var updateArticle = async function (
           );
         }
 
-        resolve({ message: "Article updated and tags synced" });
+        // ================= QA =================
+        // Get existing QA
+        const existingQA = await new Promise((res, rej) => {
+          db.query(
+            "SELECT id FROM article_qa WHERE article_id=?",
+            [id],
+            (err, rows) => {
+              if (err) rej(err);
+              else res(rows.map(r => r.id));
+            }
+          );
+        });
+
+        const incomingQAIds = qa
+          .filter(q => q.id)
+          .map(q => Number(q.id));
+
+        const qaToDelete = existingQA.filter(qId => !incomingQAIds.includes(qId));
+
+        // DELETE removed QA
+        if (qaToDelete.length > 0) {
+          await new Promise((res, rej) =>
+            db.query(
+              "DELETE FROM article_qa WHERE id IN (?)",
+              [qaToDelete],
+              (err) => (err ? rej(err) : res())
+            )
+          );
+        }
+
+        // INSERT / UPDATE QA
+        for (let q of qa) {
+          if (q.id) {
+            // UPDATE
+            await new Promise((res, rej) =>
+              db.query(
+                "UPDATE article_qa SET question=?, answer=?, extra=? WHERE id=?",
+                [q.question, q.answer, q.extra || null, q.id],
+                (err) => (err ? rej(err) : res())
+              )
+            );
+          } else {
+            // INSERT
+            await new Promise((res, rej) =>
+              db.query(
+                "INSERT INTO article_qa (question, answer, extra, article_id) VALUES (?, ?, ?, ?)",
+                [q.question, q.answer, q.extra || null, id],
+                (err) => (err ? rej(err) : res())
+              )
+            );
+          }
+        }
+
+        resolve({
+          message: "Article, tags, and QA updated successfully",
+        });
 
       } catch (error) {
-        reject("Error updating tags: " + error.message);
+        reject("Error updating article data: " + error.message);
       }
     });
   });
