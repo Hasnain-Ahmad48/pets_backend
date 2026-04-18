@@ -23,6 +23,7 @@ var shelterRoutes = require("./routes/shelters/sheltersRoute.js");
 var petRoutes = require("./routes/Pets/petRoutes.js");
 var brandRoutes = require("./routes/Brand/brandRoutes");
 var mkProductReviewRoutes = require("./routes/mk_product_reviews/productReviewRoutes.js");
+var recommendationRoutes = require("./routes/recommendation/recommendationRoutes.js");
 
 
 dotenv.config({ path: "./config/Config.env" });
@@ -90,6 +91,7 @@ app.use("/test/pets", petRoutes);
 app.use("/test/brands", brandRoutes);
 
 app.use("/test/reviews", mkProductReviewRoutes);
+app.use("/test/recommendation", recommendationRoutes);
 
 
 // app.use("/pages", pageRoutes);
