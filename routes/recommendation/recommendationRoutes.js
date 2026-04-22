@@ -1,10 +1,20 @@
+// const express = require("express");
+// const router = express.Router();
+// const recommendationController = require("../../controller/recommendation/recommendationController.js");
+
+// // Define the recommendation endpoint
+// router.post("/get-recommendations", recommendationController.getRecommendations);
+
+// module.exports = router;
+
 const express = require("express");
 const router = express.Router();
 const recommendationController = require("../../controller/recommendation/recommendationController");
 
 // GET recommendations based on entity
-router.get("/:type/:id", recommendationController.getRecommendations);
+router.post("/related", recommendationController.getRecommendations);
 // Search API
-router.get("/search", recommendationController.searchWithRecommendations);
+// router.get("/search", recommendationController.searchWithRecommendations);
 
 module.exports = router;
+

@@ -1,3 +1,45 @@
+// const db = require("../../config/DatabaseConnection.js");
+
+// /**
+//  * Fetches entities related by tags, sorted by relevance (match count).
+//  * @param {string} tableName - The target entity table (e.g., 'pets').
+//  * @param {string} bridgeTable - The tag mapping table (e.g., 'pet_tags').
+//  * @param {string} idColumn - Primary key of the entity table.
+//  * @param {string} bridgeIdColumn - Foreign key in the bridge table.
+//  * @param {Array} tagIds - Array of tag IDs to match.
+//  * @param {number} limit - Number of results to return.
+//  */
+// const getRelatedEntities = (tableName, bridgeTable, idColumn, bridgeIdColumn, tagIds, limit) => {
+//   return new Promise((resolve, reject) => {
+//     // We use a subquery to count tag matches first to ensure efficiency and
+//     // compatibility with strict MySQL GROUP BY modes.
+//     const query = `
+//       SELECT e.*, relevance_count.tag_match_count
+//       FROM ${tableName} e
+//       INNER JOIN (
+//         SELECT ${bridgeIdColumn}, COUNT(tag_id) AS tag_match_count
+//         FROM ${bridgeTable}
+//         WHERE tag_id IN (?)
+//         GROUP BY ${bridgeIdColumn}
+//       ) relevance_count ON e.${idColumn} = relevance_count.${bridgeIdColumn}
+//       ORDER BY relevance_count.tag_match_count DESC
+//       LIMIT ?
+//     `;
+
+//     db.query(query, [tagIds, limit], (err, results) => {
+//       if (err) {
+//         console.error(`Error fetching related ${tableName}:`, err);
+//         return reject(err);
+//       }
+//       resolve(results);
+//     });
+//   });
+// };
+
+// module.exports = {
+//   getRelatedEntities,
+// };
+
 const db = require("../../config/DatabaseConnection.js");
 
 // Central config (SAFE)
@@ -131,99 +173,107 @@ const attachTagsToResults = async (type, items) => {
 };
 
 // 3. Main function
-const getRecommendations = async (type, id, limit) => {
-  const tagIds = await getTagsByEntity(type, id);
+const getRecommendations = async (tag_ids,is_product,is_pets,is_article,is_breed, limit) => {
+  // const tagIds = await getTagsByEntity(type, id);
 
-  if (!tagIds.length) {
-    return {};
-  }
+  // if (!tagIds.length) {
+  //   return {};
+  // }
 
-  const types = ["product", "pet", "breed", "article"];
+   const results = {};
 
-  // exclude current type
-  const targetTypes = types.filter(t => t !== type);
+if(is_product==true){
+  // await Promise.all(
+  //   (async  => {
+      const data = await getRelatedEntities("product", tag_ids,0, limit);
+      results["product" + "s"] = data; // products, pets, breeds...
+  //   }),
+  // );
+}
 
-  const results = {};
-
-  await Promise.all(
-    targetTypes.map(async t => {
-      const data = await getRelatedEntities(t, tagIds, id, limit);
-      results[t + "s"] = data; // products, pets, breeds...
-    }),
-  );
-
+if(is_pets==true){
+      const data = await getRelatedEntities("pet", tag_ids, limit);
+      results["pet" + "s"] = data; // products, pets, breeds...
+}
+if(is_article==true){
+      const data = await getRelatedEntities("article", tag_ids, limit);
+      results["article" + "s"] = data; // products, pets, breeds...
+}
+if(is_breed==true){
+      const data = await getRelatedEntities("breed", tag_ids, limit);
+      results["breed" + "s"] = data; // products, pets, breeds...
+}
   return results;
-};
-
-module.exports = {
-  getRecommendations,
 };
 
 // 4. Search entities (LIKE based - no DB change)
-const searchEntities = (type, searchTerm, limit = 10) => {
-  return new Promise((resolve, reject) => {
-    const config = ENTITY_CONFIG[type];
+// const searchEntities = (type, searchTerm, limit = 10) => {
+//   return new Promise((resolve, reject) => {
+//     const config = ENTITY_CONFIG[type];
 
-    // Define searchable columns per entity
-    const SEARCH_COLUMNS = {
-      product: ["name", "description"],
-      pet: ["pet_name", "slug"],
-      breed: ["title", "slug"],
-      article: ["title", "description"],
-    };
+//     // Define searchable columns per entity
+//     const SEARCH_COLUMNS = {
+//       product: ["name", "description"],
+//       pet: ["pet_name", "slug"],
+//       breed: ["title", "slug"],
+//       article: ["title", "description"],
+//     };
 
-    const columns = SEARCH_COLUMNS[type];
+//     const columns = SEARCH_COLUMNS[type];
 
-    const likeClause = columns.map(col => `${col} LIKE ?`).join(" OR ");
-    const likeValues = columns.map(() => `%${searchTerm}%`);
+//     const likeClause = columns.map(col => `${col} LIKE ?`).join(" OR ");
+//     const likeValues = columns.map(() => `%${searchTerm}%`);
 
-    const query = `
-      SELECT *
-      FROM ${config.table}
-      WHERE ${likeClause}
-      LIMIT ?
-    `;
+//     const query = `
+//       SELECT *
+//       FROM ${config.table}
+//       WHERE ${likeClause}
+//       LIMIT ?
+//     `;
 
-    db.query(query, [...likeValues, limit], (err, results) => {
-      if (err) return reject(err);
-      attachTagsToResults(type, results)
-        .then(data => resolve(data))
-        .catch(err => reject(err));
-    });
-  });
-};
+//     db.query(query, [...likeValues, limit], (err, results) => {
+//       if (err) return reject(err);
+//       attachTagsToResults(type, results)
+//         .then(data => resolve(data))
+//         .catch(err => reject(err));
+//     });
+//   });
+// };
 
 // 5. Combined Search + Tag Recommendation
-const searchWithRecommendations = async (searchTerm, limit = 10) => {
-  const types = ["product", "pet", "breed", "article"];
-  const results = {};
+// const searchWithRecommendations = async (searchTerm, limit = 10) => {
+//   const types = ["product", "pet", "breed", "article"];
+//   const results = {};
 
-  await Promise.all(
-    types.map(async type => {
-      const directResults = await searchEntities(type, searchTerm, limit);
+//   await Promise.all(
+//     types.map(async type => {
+//       const directResults = await searchEntities(type, searchTerm, limit);
 
-      // Extract IDs → fetch tags → expand
-      let expandedResults = [];
+//       // Extract IDs → fetch tags → expand
+//       let expandedResults = [];
 
-      if (directResults.length > 0) {
-        const firstItem = directResults[0];
+//       if (directResults.length > 0) {
+//         const firstItem = directResults[0];
 
-        // get tags of first matched item
-        const config = ENTITY_CONFIG[type];
-        const entityId = firstItem[config.id];
+//         // get tags of first matched item
+//         const config = ENTITY_CONFIG[type];
+//         const entityId = firstItem[config.id];
 
-        const tagIds = await getTagsByEntity(type, entityId);
+//         const tagIds = await getTagsByEntity(type, entityId);
 
-        if (tagIds.length > 0) {
-          expandedResults = await getRelatedEntities(type, tagIds, 0, limit);
-        }
-      }
+//         if (tagIds.length > 0) {
+//           expandedResults = await getRelatedEntities(type, tagIds, 0, limit);
+//         }
+//       }
 
-      results[type + "s"] = [...directResults, ...expandedResults];
-    }),
-  );
+//       results[type + "s"] = [...directResults, ...expandedResults];
+//     }),
+//   );
 
-  return results;
+//   return results;
+// };
+
+module.exports = {
+  getRecommendations,
+  // searchWithRecommendations
 };
-
-module.exports.searchWithRecommendations = searchWithRecommendations;
