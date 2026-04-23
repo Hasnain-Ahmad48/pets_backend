@@ -24,14 +24,14 @@ var petRoutes = require("./routes/Pets/petRoutes.js");
 var brandRoutes = require("./routes/Brand/brandRoutes");
 var mkProductReviewRoutes = require("./routes/mk_product_reviews/productReviewRoutes.js");
 var recommendationRoutes = require("./routes/recommendation/recommendationRoutes.js");
+var videosRoutes = require("./routes/Videos/videosRoutes.js");
 
-
-dotenv.config({ path: "./config/Config.env" });
+dotenv.config({path: "./config/Config.env"});
 
 var app = express();
 
 app.use(express.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({extended: true}));
 
 // app.use(cors());
 
@@ -60,8 +60,8 @@ app.use(
     secret: "HJSDHDSLDLSDJSL",
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false },
-  })
+    cookie: {secure: false},
+  }),
 );
 
 // var prerender = require('prerender-node');
@@ -92,7 +92,7 @@ app.use("/test/brands", brandRoutes);
 
 app.use("/test/reviews", mkProductReviewRoutes);
 app.use("/test/recommendation", recommendationRoutes);
-
+app.use("/test/video", videosRoutes);
 
 // app.use("/pages", pageRoutes);
 // app.use("/role", roleRoutes);
@@ -106,14 +106,12 @@ app.use("/test/recommendation", recommendationRoutes);
 // app.use("/privacyAndTermRoutes", privacyAndTermRoutes);
 // app.use("/contact", contactUsRoutes);
 
-
 // // User Routes
 // app.use("/authUser", authUserRoutes);
 // app.use("/advertisement", AdvertisementRoutes);
 // app.use("/shop", shopRoutes);
 // app.use("/subCategory", mkProductCategoryRoutes);
 // app.use("/product", mkProductRoutes);
-
 
 app.listen(process.env.PORT, function () {
   console.log("Server is Running on PORT " + process.env.PORT);
