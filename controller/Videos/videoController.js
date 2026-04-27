@@ -15,12 +15,13 @@ const addVideoController = async (req, res) => {
       tags
     } = req.body;
 
-    // const tag_ids = tags ? tags.split(",").map(t => t.trim()) : [];
-
-    const videoFile = req.files.video ? req.files.video[0] : null;
+    const videoFile = req.files?.video?.[0];
 
     if (!videoFile) {
-      return res.status(400).json({ message: "Video file required" });
+      return res.status(400).json({
+        success: false,
+        message: "Video file required"
+      });
     }
 
     const video_url = "videos/" + videoFile.filename;
@@ -37,11 +38,19 @@ const addVideoController = async (req, res) => {
       tags
     );
 
-    res.json({ message: "Video added", result });
+    res.status(201).json({
+      success: true,
+      message: "Video added successfully",
+      data: result
+    });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error" });
+    console.error("Add Video Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
   }
 };
 
@@ -75,6 +84,7 @@ const updateVideoController = async (req, res) => {
       category_id,
       is_featured,
       is_active,
+      tags
     } = req.body;
 
     const videoFile = req.files.video ? req.files.video[0] : null;
@@ -95,6 +105,7 @@ const updateVideoController = async (req, res) => {
       category_id,
       is_featured,
       is_active,
+      tags
     );
 
     if (result.notFound) {
@@ -144,9 +155,71 @@ const deleteVideoController = async (req, res) => {
   }
 };
 
+//view controller
+const addViewController = async (req,res)=>{
+  try{
+    const {id}=req.params
+    const userId=req.user?req.user.id:null
+    const {watch_time_seconds,is_completed}=req.body
+ await videoModel.addVideo(
+  id,
+  userId,
+  watch_time_seconds || 0,
+  is_completed ? 1:0
+ )
+ res.status(201).json({
+  success:true,
+  message:"view recorded"
+ })
+
+ 
+  }
+
+  catch(error){
+    console.error("View Error:",error)
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    })
+  }
+}
+
+
+//like controller
+const addLikeController =async (req,res)=>{
+try{
+  const {id}=req.params
+  const userId=req.user.id
+
+  const result=await videoModel.addLike(id,userId)
+
+  if(result.alreadyLiked){
+    return res.status(200).json({
+      success:true,
+      message:"Video already liked"
+    })
+  }
+
+  res.status(201).json({
+    success:true,
+    message:"video Liked"
+  })
+
+}
+catch(error){
+  console.error("Like Error:", error)
+  res.status(500).json({
+    success:false,
+    message:"Internal server error"
+  })
+}
+}
+
 module.exports = {
   addVideoController,
   getVideosController,
   updateVideoController,
   deleteVideoController,
+  addViewController,
+  addLikeController
 };

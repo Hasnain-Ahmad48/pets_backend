@@ -10,11 +10,10 @@ const addVideo = (
   category_id,
   is_featured,
   is_active,
-  tags = ""
+  tags = "",
 ) => {
   return new Promise((resolve, reject) => {
-
-    db.beginTransaction((err) => {
+    db.beginTransaction(err => {
       if (err) return reject(err);
 
       const insertQuery = `
@@ -35,49 +34,90 @@ const addVideo = (
           is_featured || false,
           is_active !== undefined ? is_active : true,
         ],
-        (err, result) => {
+        async (err, result) => {
           if (err) {
             return db.rollback(() => reject(err));
           }
 
           const videoId = result.insertId;
 
-          // ✅ STEP 1: parse tag IDs directly
-          let tagIds = [];
+          try {
+            // Parse tag names
+            let parsedTags = [];
 
-          if (tags && typeof tags === "string") {
-            tagIds = tags
-              .split(",")
-              .map(t => parseInt(t.trim()))
-              .filter(t => !isNaN(t));
-          }
+            if (typeof tags === "string" && tags.trim()) {
+              parsedTags = tags
+                .split(",")
+                .map(tag => tag.trim().toLowerCase())
+                .filter(tag => tag);
+            }
 
-          // If no tags → just commit video
-          if (tagIds.length === 0) {
-            return db.commit(err => {
-              if (err) return db.rollback(() => reject(err));
-              resolve({ video_id: videoId });
-            });
-          }
+            const tagIds = [];
 
-          // ✅ STEP 2: insert into pivot table directly
-          const values = tagIds.map(tagId => [videoId, tagId]);
+            //  Find or Create Tags
+            for (const tagName of parsedTags) {
+              const existingTag = await new Promise((res, rej) => {
+                db.query(
+                  "SELECT id FROM tags WHERE name = ?",
+                  [tagName],
+                  (err, rows) => {
+                    if (err) return rej(err);
+                    res(rows);
+                  },
+                );
+              });
 
-          db.query(
-            "INSERT INTO video_tags (video_id, tag_id) VALUES ?",
-            [values],
-            (err) => {
-              if (err) {
-                return db.rollback(() => reject(err));
+              let tagId;
+
+              if (existingTag.length > 0) {
+                tagId = existingTag[0].id;
+              } else {
+                const insertedTag = await new Promise((res, rej) => {
+                  db.query(
+                    "INSERT INTO tags (name) VALUES (?)",
+                    [tagName],
+                    (err, insertResult) => {
+                      if (err) return rej(err);
+                      res(insertResult);
+                    },
+                  );
+                });
+
+                tagId = insertedTag.insertId;
               }
 
-              db.commit(err => {
-                if (err) return db.rollback(() => reject(err));
-                resolve({ video_id: videoId });
+              tagIds.push(tagId);
+            }
+
+            // Insert into video_tags
+            if (tagIds.length > 0) {
+              const uniqueTagIds = [...new Set(tagIds)];
+              const values = uniqueTagIds.map(tagId => [videoId, tagId]);
+
+              await new Promise((res, rej) => {
+                db.query(
+                  "INSERT INTO video_tags (video_id, tag_id) VALUES ?",
+                  [values],
+                  err => {
+                    if (err) return rej(err);
+                    res();
+                  },
+                );
               });
             }
-          );
-        }
+
+            // Commit transaction
+            db.commit(err => {
+              if (err) return db.rollback(() => reject(err));
+              resolve({
+                video_id: videoId,
+                tags_added: parsedTags,
+              });
+            });
+          } catch (error) {
+            db.rollback(() => reject(error));
+          }
+        },
       );
     });
   });
@@ -86,13 +126,11 @@ const addVideo = (
 // GET VIDEOS (id OR title OR all)
 const getVideos = (id, title) => {
   return new Promise((resolve, reject) => {
-
     let query = `
       SELECT 
         v.*,
         c.name AS category_name,
-        GROUP_CONCAT(DISTINCT t.id) AS tag_ids,
-        GROUP_CONCAT(DISTINCT t.name) AS tag_names
+        GROUP_CONCAT(CONCAT(t.id, ':', t.name)) AS tags
       FROM pet_videos v
       LEFT JOIN video_categories c ON v.category_id = c.category_id
       LEFT JOIN video_tags vt ON v.video_id = vt.video_id
@@ -121,16 +159,24 @@ const getVideos = (id, title) => {
     db.query(query, values, (err, results) => {
       if (err) return reject(err);
 
-      // ✅ format tags nicely
-      const formatted = results.map(v => ({
-        ...v,
-        tags: v.tag_ids
-          ? v.tag_ids.split(",").map((id, i) => ({
+      const formatted = results.map(v => {
+        let tags = [];
+
+        if (v.tags) {
+          tags = v.tags.split(",").map(t => {
+            const [id, name] = t.split(":");
+            return {
               id: parseInt(id),
-              name: v.tag_names.split(",")[i]
-            }))
-          : []
-      }));
+              name,
+            };
+          });
+        }
+
+        return {
+          ...v,
+          tags,
+        };
+      });
 
       resolve(formatted);
     });
@@ -148,48 +194,141 @@ const updateVideo = (
   category_id,
   is_featured,
   is_active,
+  tags = "",
 ) => {
   return new Promise((resolve, reject) => {
-    let query = `
-      UPDATE pet_videos SET
-        title = ?,
-        description = ?,
-        duration_seconds = ?,
-        category_id = ?,
-        is_featured = ?,
-        is_active = ?
-    `;
-
-    const values = [
-      title,
-      description,
-      duration_seconds,
-      category_id || null,
-      is_featured || false,
-      is_active !== undefined ? is_active : true,
-    ];
-
-    if (video_url) {
-      query += ", video_url = ?";
-      values.push(video_url);
-    }
-
-    if (thumbnail_url) {
-      query += ", thumbnail_url = ?";
-      values.push(thumbnail_url);
-    }
-
-    query += " WHERE video_id = ?";
-    values.push(id);
-
-    db.query(query, values, (err, result) => {
+    db.beginTransaction(async err => {
       if (err) return reject(err);
 
-      if (result.affectedRows === 0) {
-        return resolve({notFound: true});
-      }
+      try {
+        // ✅ STEP 1: Update video basic info
+        let query = `
+          UPDATE pet_videos SET
+            title = ?,
+            description = ?,
+            duration_seconds = ?,
+            category_id = ?,
+            is_featured = ?,
+            is_active = ?
+        `;
 
-      resolve({success: true});
+        const values = [
+          title,
+          description,
+          duration_seconds,
+          category_id || null,
+          is_featured || false,
+          is_active !== undefined ? is_active : true,
+        ];
+
+        if (video_url) {
+          query += ", video_url = ?";
+          values.push(video_url);
+        }
+
+        if (thumbnail_url) {
+          query += ", thumbnail_url = ?";
+          values.push(thumbnail_url);
+        }
+
+        query += " WHERE video_id = ?";
+        values.push(id);
+
+        const updateResult = await new Promise((res, rej) => {
+          db.query(query, values, (err, result) => {
+            if (err) return rej(err);
+            res(result);
+          });
+        });
+
+        if (updateResult.affectedRows === 0) {
+          await db.rollback();
+          return resolve({notFound: true});
+        }
+
+        // ✅ STEP 2: Parse tags
+        let parsedTags = [];
+
+        if (typeof tags === "string" && tags.trim()) {
+          parsedTags = tags
+            .split(",")
+            .map(tag => tag.trim().toLowerCase())
+            .filter(tag => tag);
+        }
+
+        // ✅ STEP 3: Delete old tags
+        await new Promise((res, rej) => {
+          db.query("DELETE FROM video_tags WHERE video_id = ?", [id], err => {
+            if (err) return rej(err);
+            res();
+          });
+        });
+
+        const tagIds = [];
+
+        // ✅ STEP 4: Find or create new tags
+        for (const tagName of parsedTags) {
+          const existingTag = await new Promise((res, rej) => {
+            db.query(
+              "SELECT id FROM tags WHERE name = ?",
+              [tagName],
+              (err, rows) => {
+                if (err) return rej(err);
+                res(rows);
+              },
+            );
+          });
+
+          let tagId;
+
+          if (existingTag.length > 0) {
+            tagId = existingTag[0].id;
+          } else {
+            const insertedTag = await new Promise((res, rej) => {
+              db.query(
+                "INSERT INTO tags (name) VALUES (?)",
+                [tagName],
+                (err, result) => {
+                  if (err) return rej(err);
+                  res(result);
+                },
+              );
+            });
+
+            tagId = insertedTag.insertId;
+          }
+
+          tagIds.push(tagId);
+        }
+
+        // ✅ STEP 5: Insert new tags
+        if (tagIds.length > 0) {
+          const uniqueTagIds = [...new Set(tagIds)];
+          const values = uniqueTagIds.map(tagId => [id, tagId]);
+
+          await new Promise((res, rej) => {
+            db.query(
+              "INSERT INTO video_tags (video_id, tag_id) VALUES ?",
+              [values],
+              err => {
+                if (err) return rej(err);
+                res();
+              },
+            );
+          });
+        }
+
+        // ✅ COMMIT
+        db.commit(err => {
+          if (err) return db.rollback(() => reject(err));
+          resolve({
+            success: true,
+            updated_tags: parsedTags,
+          });
+        });
+      } catch (error) {
+        db.rollback(() => reject(error));
+      }
     });
   });
 };
@@ -206,9 +345,94 @@ const deleteVideo = id => {
   });
 };
 
+//video views
+const addView = (videoId, userId, watchTime = 0, isCompleted = 0) => {
+  return new Promise((resolve, reject) => {
+    db.beginTransaction(err => {
+      if (err) return reject(err);
+
+      // Insert into video_views
+      db.query(
+        `INSERT INTO pet_video_views 
+        (video_id, user_id, watch_time_seconds, is_completed) 
+        VALUES (?, ?, ?, ?)`,
+        [videoId, userId, watchTime, isCompleted],
+        err => {
+          if (err) {
+            return db.rollback(() => reject(err));
+          }
+
+          // Update total_views
+          db.query(
+            "UPDATE pet_videos SET total_views = total_views + 1 WHERE video_id = ?",
+            [videoId],
+            err => {
+              if (err) {
+                return db.rollback(() => reject(err));
+              }
+
+              db.commit(err => {
+                if (err) return db.rollback(() => reject(err));
+
+                resolve({
+                  success: true,
+                });
+              });
+            },
+          );
+        },
+      );
+    });
+  });
+};
+
+//like counter
+const addLike = (videoId, userId) => {
+  return new Promise((resolve, reject) => {
+    // Check if already liked
+    db.query(
+      "SELECT id FROM pet_video_likes WHERE video_id = ? AND user_id = ?",
+      [videoId, userId],
+      (err, rows) => {
+        if (err) return reject(err);
+
+        if (rows.length > 0) {
+          return resolve({
+            alreadyLiked: true,
+          });
+        }
+
+        // Insert like
+        db.query(
+          "INSERT INTO pet_video_likes (video_id, user_id) VALUES (?, ?)",
+          [videoId, userId],
+          (err, result) => {
+            if (err) return reject(err);
+
+            // Update total_likes in video table
+            db.query(
+              "UPDATE pet_videos SET total_likes = total_likes + 1 WHERE video_id = ?",
+              [videoId],
+              err => {
+                if (err) return reject(err);
+
+                resolve({
+                  success: true,
+                });
+              },
+            );
+          },
+        );
+      },
+    );
+  });
+};
+
 module.exports = {
   addVideo,
   getVideos,
   updateVideo,
   deleteVideo,
+  addView,
+  addLike,
 };
