@@ -25,6 +25,7 @@ var brandRoutes = require("./routes/Brand/brandRoutes");
 var mkProductReviewRoutes = require("./routes/mk_product_reviews/productReviewRoutes.js");
 var recommendationRoutes = require("./routes/recommendation/recommendationRoutes.js");
 var videosRoutes = require("./routes/Videos/videosRoutes.js");
+var tagsRoutes = require("./routes/tagsRoutes/tagsRoutes.js")
 
 dotenv.config({path: "./config/Config.env"});
 
@@ -93,6 +94,7 @@ app.use("/test/brands", brandRoutes);
 app.use("/test/reviews", mkProductReviewRoutes);
 app.use("/test/recommendation", recommendationRoutes);
 app.use("/test/video", videosRoutes);
+app.use("/test/tags", tagsRoutes);
 
 // app.use("/pages", pageRoutes);
 // app.use("/role", roleRoutes);
